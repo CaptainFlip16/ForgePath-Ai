@@ -1,0 +1,119 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Information about an authorized developer workspace.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "fullName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "createdAt": {
+          "type": "object"
+        },
+        "lastLoginAt": {
+          "type": "object"
+        },
+        "hasCompletedOnboarding": {
+          "type": "boolean"
+        }
+      },
+      "required": ["uid", "fullName", "email"]
+    },
+    "OnboardingData": {
+      "title": "OnboardingData",
+      "description": "Onboarding answers logged by the developer.",
+      "type": "object",
+      "properties": {
+        "learningGoal": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "selectedSkills": {
+          "type": "array"
+        },
+        "weeklyTime": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "learningStyle": {
+          "type": "array"
+        },
+        "desiredOutcome": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "updatedAt": {
+          "type": "object"
+        }
+      },
+      "required": ["learningGoal", "selectedSkills", "weeklyTime", "learningStyle", "desiredOutcome"]
+    },
+    "RoadmapData": {
+      "title": "RoadmapData",
+      "description": "Generated or offline personalized roadmap.",
+      "type": "object",
+      "properties": {
+        "roadmapData": {
+          "type": "object"
+        },
+        "generatedAt": {
+          "type": "object"
+        },
+        "updatedAt": {
+          "type": "object"
+        }
+      },
+      "required": ["roadmapData"]
+    },
+    "ProgressData": {
+      "title": "ProgressData",
+      "description": "The active progress of completed skills and current active node.",
+      "type": "object",
+      "properties": {
+        "completedSkills": {
+          "type": "array"
+        },
+        "currentSkill": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "completionPercentage": {
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": "object"
+        }
+      },
+      "required": ["completedSkills", "currentSkill", "completionPercentage"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "UserProfile",
+      "description": "Primary user profile document containing name and status."
+    },
+    "/users/{uid}/onboarding/data": {
+      "schema": "OnboardingData",
+      "description": "Persisted onboarding choices of the user."
+    },
+    "/users/{uid}/roadmap/data": {
+      "schema": "RoadmapData",
+      "description": "Active structured learning roadmap for the user."
+    },
+    "/users/{uid}/progress/data": {
+      "schema": "ProgressData",
+      "description": "Ongoing skill mastery and progression state."
+    }
+  }
+}

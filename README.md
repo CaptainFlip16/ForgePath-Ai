@@ -95,21 +95,25 @@ Your tone:
 
 ## 🖼️ User Interface & Visual Showcase
 
-Because external media files are not packaged, here is a breakdown of the custom design system and aesthetic layouts:
+Here is a visual presentation of the ForgePath AI user experience:
 
 ### 1. Immersive Landing & Orbit Center
 *   **Aesthetic Theme**: *Cosmic Dark* (custom off-black space background, glowing nebula elements, and subtle high-contrast borders).
 *   **3D Orbit Canvas**: A large interactive region featuring interactive rotating stellar cores. Clicking a star highlights technical domains with a detailed slide-in skill description.
 *   **Interactive Call-to-Actions**: Hovering over the buttons triggers animated particle glowing effects.
 
-### 2. The Personalized Onboarding Funnel
-*   **Step-by-Step wizardry**: Smooth Framer Motion transitions guide users through career selection, existing skill tagging (with interactive tag pills), learning schedule configuration, and portfolio goals.
-*   **The Forge Loader**: During roadmap synthesis, the UI transitions to a server-side build console displaying simulated build streams as the AI compiles learning dependencies.
+![1. Immersive Landing & Orbit Center](./src/assets/images/landing_page_mockup_1784616906459.jpg)
 
-### 3. The Command Center Dashboard
+### 2. The Command Center Dashboard
 *   **Dual-Panel Console**: A sleek sidebar showing user stats, current path progression, and module nodes, alongside a major panel displaying the active module's details.
 *   **Active Project Briefs**: Shows a beautifully styled specifications board for the custom student project, including tech requirements and a direct "Consult AI Mentor" button.
+
+![2. The Command Center Dashboard](./src/assets/images/dashboard_mockup_1784616927356.jpg)
+
+### 3. AI Mentor Workspace
 *   **AI Mentor Workspace**: Side-drawer with chat streams, suggested prompt tags, loading animations, and syntax-highlighted code block boxes.
+
+![3. AI Mentor Workspace](./src/assets/images/chat_mentor_mockup_1784616949709.jpg)
 
 ---
 

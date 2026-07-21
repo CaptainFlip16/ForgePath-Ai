@@ -40,12 +40,26 @@ import {
   User
 } from "lucide-react";
 import { Roadmap, Module, ChatMessage } from "./types";
-import { generateFallbackRoadmap } from "./utils";
+import { generateFallbackRoadmap, normalizeN8nRoadmap } from "./utils";
 import { useAuth } from "./lib/AuthContext";
 import { AuthPage } from "./components/AuthPage";
+import { 
+  saveOnboarding, 
+  getOnboarding, 
+  saveRoadmap, 
+  getRoadmap, 
+  saveProgress, 
+  getProgress,
+  deleteRoadmap,
+  testFirestoreConnection
+} from "./lib/firestoreService";
 
 export default function App() {
   const { user, profile, loading: authLoading, logOut, updateOnboardingStatus } = useAuth();
+
+  // Loading and Dynamic Skills states for Firestore sync
+  const [dataLoading, setDataLoading] = useState<boolean>(false);
+  const [dynamicSkills, setDynamicSkills] = useState<Skill[]>(skills);
 
   // Navigation & User Flow State
   // "home", "onboarding_1", "onboarding_2", "onboarding_3", "onboarding_4", "loading", "dashboard", "auth"
@@ -72,6 +86,8 @@ export default function App() {
   // Roadmap & study progression state
   const [roadmap, setRoadmap] = useState<Roadmap | null>(null);
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [isGeneratingRoadmap, setIsGeneratingRoadmap] = useState<boolean>(false);
+  const [roadmapGenerationError, setRoadmapGenerationError] = useState<string | null>(null);
 
   // Active Project Detail focus
   const [activeProjectFocus, setActiveProjectFocus] = useState<boolean>(false);
@@ -119,49 +135,140 @@ export default function App() {
     "Node.js"
   ];
 
-  // Persistent user session and state auto-restore on boot or refresh
+  // Load all user's data from Cloud Firestore on login or refresh
+  useEffect(() => {
+    async function fetchUserData() {
+      if (!user) {
+        setRoadmap(null);
+        setSelectedModule(null);
+        return;
+      }
+      
+      setDataLoading(true);
+      try {
+        await testFirestoreConnection();
+        
+        // 1. Fetch user's custom calibrated roadmap
+        const dbRoadmap = await getRoadmap(user.uid);
+        if (dbRoadmap) {
+          setRoadmap(dbRoadmap);
+          const inProgressMod = dbRoadmap.modules.find((m: any) => m.status === "In Progress");
+          setSelectedModule(inProgressMod || dbRoadmap.modules[3] || dbRoadmap.modules[0]);
+        } else {
+          // Sync/Migrate from localStorage if exists
+          const savedRoadmap = localStorage.getItem(`forgepath_roadmap_${user.uid}`);
+          if (savedRoadmap) {
+            try {
+              const parsed = JSON.parse(savedRoadmap);
+              setRoadmap(parsed);
+              const inProgressMod = parsed.modules.find((m: any) => m.status === "In Progress");
+              setSelectedModule(inProgressMod || parsed.modules[3] || parsed.modules[0]);
+              // Upload to Firestore so they have server persistence
+              await saveRoadmap(user.uid, parsed);
+            } catch (e) {
+              console.error("Migration parse error", e);
+            }
+          }
+        }
+
+        // 2. Fetch onboarding choices to populate inputs
+        const dbOnboarding = await getOnboarding(user.uid);
+        if (dbOnboarding) {
+          setTargetCareer(dbOnboarding.learningGoal || "");
+          setSelectedSkills(dbOnboarding.selectedSkills || []);
+          setWeeklyHours(dbOnboarding.weeklyTime || "5-10 hours");
+          setMethodologies(dbOnboarding.learningStyle || []);
+          setTargetBuild(dbOnboarding.desiredOutcome || "");
+        }
+      } catch (err) {
+        console.error("Error synchronizing with Firestore database:", err);
+      } finally {
+        setDataLoading(false);
+      }
+    }
+    fetchUserData();
+  }, [user]);
+
+  // Handle immediate navigation on profile load
   useEffect(() => {
     if (user && profile) {
-      // Try to load user's persisted roadmap
-      const savedRoadmap = localStorage.getItem(`forgepath_roadmap_${user.uid}`);
-      if (savedRoadmap) {
-        try {
-          const parsed = JSON.parse(savedRoadmap);
-          setRoadmap(parsed);
-          const inProgressMod = parsed.modules.find((m: any) => m.status === "In Progress");
-          setSelectedModule(inProgressMod || parsed.modules[3] || parsed.modules[0]);
-        } catch (e) {
-          console.error("Error loading saved roadmap:", e);
-        }
-      }
-
-      // If they are on landing or auth and completed onboarding, go straight to dashboard
       if ((currentView === "home" || currentView === "auth") && profile.hasCompletedOnboarding) {
         setCurrentView("dashboard");
       }
     }
-  }, [user, profile]);
+  }, [user, profile, currentView]);
 
-  // Setup periodic intervals for loading step simulation
+  // Synchronize 3D Skill Universe node statuses dynamically with the active Firestore roadmap modules
   useEffect(() => {
-    if (currentView === "loading") {
+    if (!roadmap || !roadmap.modules || roadmap.modules.length === 0) return;
+
+    const total = roadmap.modules.length;
+    const updatedSkills: Skill[] = roadmap.modules.map((m, idx) => {
+      let skillStatus: any = "locked";
+      let progress = 0;
+
+      if (m.status === "Mastered") {
+        skillStatus = "completed";
+        progress = 100;
+      } else if (m.status === "In Progress") {
+        skillStatus = "current";
+        progress = 45;
+      } else if (idx === total - 1) {
+        skillStatus = "destination";
+        progress = 0;
+      } else {
+        skillStatus = "locked";
+        progress = 0;
+      }
+
+      const t = total > 1 ? idx / (total - 1) : 0.5;
+      const x = -6.0 + t * 12.0;
+      const y = Math.sin(t * Math.PI) * 1.2 - 0.4;
+      const z = (idx % 2 === 0 ? 0.35 : -0.45) * Math.cos(t * Math.PI);
+
+      return {
+        id: m.id,
+        name: m.title,
+        shortName: m.title.length > 16 ? m.title.split(" ")[0] : m.title,
+        description: m.description,
+        whyItMatters: m.whyItMatters,
+        status: skillStatus,
+        prerequisites: m.prerequisites || [],
+        progress,
+        position: [x, y, z] as [number, number, number],
+        project: m.recommendedProject || {
+          title: `${m.title} Capstone`,
+          description: `Build a project demonstrating ${m.title}.`
+        }
+      };
+    });
+
+    setDynamicSkills(updatedSkills);
+
+    // Keep selectedSkill in sync with current state
+    setSelectedSkill((prev) => {
+      if (prev) {
+        const match = updatedSkills.find((s) => s.id === prev.id || s.name === prev.name);
+        if (match) return match;
+      }
+      return updatedSkills.find((s) => s.status === "current") || updatedSkills[0];
+    });
+  }, [roadmap]);
+
+  // Setup periodic intervals for loading step simulation (driven by n8n request execution)
+  useEffect(() => {
+    if (currentView === "loading" && !roadmapGenerationError) {
       const interval = setInterval(() => {
         setLoadingStep((prev) => {
           if (prev < loadingPhrases.length - 1) {
             return prev + 1;
-          } else {
-            clearInterval(interval);
-            // Complete loading and transition to dashboard
-            setTimeout(() => {
-              setCurrentView("dashboard");
-            }, 1000);
-            return prev;
           }
+          return prev;
         });
       }, 1500);
       return () => clearInterval(interval);
     }
-  }, [currentView]);
+  }, [currentView, roadmapGenerationError]);
 
   // Handle CTA Click: Protected Navigation Flow
   const handleBuildMyPathClick = () => {
@@ -230,50 +337,143 @@ export default function App() {
     }
   }, [chatMessages]);
 
-  // 1. Core API call: Generate roadmap with Gemini API
+  // 1. Core Webhook API call: Send onboarding selections to n8n production webhook & Save to Firestore
   const handleGenerateRoadmap = async () => {
+    if (!user) {
+      setCurrentView("auth");
+      return;
+    }
+
+    setIsGeneratingRoadmap(true);
+    setRoadmapGenerationError(null);
     setCurrentView("loading");
     setLoadingStep(0);
 
-    const postBody = {
-      become: targetCareer || "AI Automation Developer",
-      build: targetBuild || "Dynamic Weather Intelligence Dashboard",
-      skills: selectedSkills,
-      time: weeklyHours,
-      methodologies: methodologies
+    const goal = targetCareer || "AI Automation Developer";
+    const desiredOutcome = targetBuild || "Portfolio Project";
+    const learningStyle = methodologies && methodologies.length > 0 ? methodologies.join(", ") : "Build projects";
+
+    const n8nPayload = {
+      uid: user.uid,
+      email: user.email || profile?.email || "",
+      name: profile?.fullName || user.displayName || (user.email ? user.email.split('@')[0] : "Learner"),
+      goal: goal,
+      currentSkills: selectedSkills || [],
+      weeklyTime: weeklyHours || "5-10 hours",
+      learningStyle: learningStyle,
+      desiredOutcome: desiredOutcome,
+      projectGoal: desiredOutcome
     };
 
     try {
-      const res = await fetch("/api/generate-roadmap", {
+      const webhookUrl = "https://ahmadontech.app.n8n.cloud/webhook/forgepath/generate-roadmap";
+      console.log("Posting onboarding payload to n8n production webhook:", webhookUrl, n8nPayload);
+
+      const res = await fetch(webhookUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(postBody),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(n8nPayload)
       });
 
       if (!res.ok) {
-        throw new Error("Server response error. Falling back to dynamic local generator.");
+        const errText = await res.text().catch(() => "");
+        throw new Error(`n8n Webhook returned status ${res.status}: ${errText || res.statusText || "Server error"}`);
       }
 
-      const data: Roadmap = await res.json();
-      setRoadmap(data);
-      if (user) {
-        localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(data));
-        updateOnboardingStatus(true);
+      const responseData = await res.json();
+      console.log("Received n8n Webhook response:", responseData);
+
+      const normalizedRoadmap = normalizeN8nRoadmap(responseData, n8nPayload.goal, n8nPayload.desiredOutcome);
+      setRoadmap(normalizedRoadmap);
+
+      // Select initial "In Progress" module
+      const activeMod = normalizedRoadmap.modules.find((m) => m.status === "In Progress") || normalizedRoadmap.modules[0];
+      setSelectedModule(activeMod);
+
+      // Persist to Firestore
+      await saveOnboarding(user.uid, {
+        learningGoal: n8nPayload.goal,
+        selectedSkills: n8nPayload.currentSkills,
+        weeklyTime: n8nPayload.weeklyTime,
+        learningStyle: methodologies,
+        desiredOutcome: n8nPayload.desiredOutcome
+      });
+
+      await saveRoadmap(user.uid, normalizedRoadmap);
+
+      await saveProgress(user.uid, {
+        completedSkills: normalizedRoadmap.modules.filter((m) => m.status === "Mastered").map((m) => m.title),
+        currentSkill: activeMod?.title || "",
+        completionPercentage: normalizedRoadmap.overallProgress
+      });
+
+      localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(normalizedRoadmap));
+      await updateOnboardingStatus(true);
+
+      setIsGeneratingRoadmap(false);
+      setCurrentView("dashboard");
+    } catch (err: any) {
+      console.error("Error invoking n8n roadmap generation webhook:", err);
+      const errMsg = err?.message || "Failed to generate roadmap from n8n production workflow.";
+      setRoadmapGenerationError(errMsg);
+      setIsGeneratingRoadmap(false);
+    }
+  };
+
+  // Helper to complete a roadmap module, advance progress, and persist to Firestore
+  const handleMarkModuleCompleted = async (moduleId: string) => {
+    if (!roadmap || !user) return;
+
+    const updatedModules = roadmap.modules.map((m) => {
+      if (m.id === moduleId) {
+        return { ...m, status: "Mastered" as const };
       }
-      // Select the "In Progress" module initially
-      const inProgressMod = data.modules.find((m) => m.status === "In Progress");
-      setSelectedModule(inProgressMod || data.modules[3] || data.modules[0]);
+      return m;
+    });
+
+    // Auto-advance next locked module to "In Progress"
+    let unlockedNext = false;
+    const finalModules = updatedModules.map((m) => {
+      if (!unlockedNext && m.status === "Locked") {
+        unlockedNext = true;
+        return { ...m, status: "In Progress" as const };
+      }
+      return m;
+    });
+
+    const completedCount = finalModules.filter(m => m.status === "Mastered").length;
+    const overallProgress = Math.round((completedCount / finalModules.length) * 100);
+
+    const updatedRoadmap: Roadmap = {
+      ...roadmap,
+      overallProgress,
+      modules: finalModules
+    };
+
+    setRoadmap(updatedRoadmap);
+
+    const nextInProg = finalModules.find(m => m.status === "In Progress");
+    if (nextInProg) {
+      setSelectedModule(nextInProg);
+    } else {
+      // If none are in progress, default to first or selected
+      setSelectedModule(finalModules.find(m => m.id === moduleId) || finalModules[0]);
+    }
+
+    try {
+      await saveRoadmap(user.uid, updatedRoadmap);
+      await saveProgress(user.uid, {
+        completedSkills: finalModules.filter(m => m.status === "Mastered").map(m => m.title),
+        currentSkill: nextInProg?.title || "Path Completed!",
+        completionPercentage: overallProgress
+      });
+
+      setNotice(`Module mastered! Progress updated to ${overallProgress}%`);
+      setTimeout(() => setNotice(""), 3000);
     } catch (err) {
-      console.warn("Fallback path generator activated due to backend API constraints or rate limits:", err);
-      // Dynamic offline generator
-      const fallbackData = generateFallbackRoadmap(postBody.become, postBody.build, postBody.skills);
-      setRoadmap(fallbackData);
-      if (user) {
-        localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(fallbackData));
-        updateOnboardingStatus(true);
-      }
-      const inProgressMod = fallbackData.modules.find((m) => m.status === "In Progress");
-      setSelectedModule(inProgressMod || fallbackData.modules[3] || fallbackData.modules[0]);
+      console.error("Error setting module master state in Firestore:", err);
     }
   };
 
@@ -355,7 +555,7 @@ export default function App() {
     }
   };
 
-  if (authLoading) {
+  if (authLoading || dataLoading) {
     return (
       <div className="bg-[#05070a] text-on-surface min-h-screen flex flex-col items-center justify-center relative overflow-hidden antialiased">
         <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
@@ -367,7 +567,7 @@ export default function App() {
             <Compass className="text-on-primary w-6 h-6 animate-spin-slow" />
           </div>
           <h2 className="text-lg font-bold tracking-widest text-primary uppercase mb-2">ForgePath AI</h2>
-          <p className="text-xs text-on-surface-variant/60 font-mono tracking-wide animate-pulse">Initializing learning workspace credentials...</p>
+          <p className="text-xs text-on-surface-variant/60 font-mono tracking-wide animate-pulse">Synchronizing Firestore credentials & database state...</p>
         </div>
       </div>
     );
@@ -1089,40 +1289,72 @@ export default function App() {
           </header>
 
           <main className="flex-grow flex flex-col items-center justify-center max-w-xl mx-auto w-full">
-            {/* Spinning orbital loading node */}
-            <div className="relative w-36 h-36 flex items-center justify-center mb-10">
-              <div className="absolute inset-0 rounded-full border border-primary/20 animate-ping"></div>
-              <div className="absolute inset-2 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
-              <div className="absolute inset-4 rounded-full border border-secondary/15 animate-reverse-spin"></div>
-              <Brain className="w-10 h-10 text-secondary animate-pulse" />
-            </div>
+            {!roadmapGenerationError ? (
+              <>
+                {/* Spinning orbital loading node */}
+                <div className="relative w-36 h-36 flex items-center justify-center mb-10">
+                  <div className="absolute inset-0 rounded-full border border-primary/20 animate-ping"></div>
+                  <div className="absolute inset-2 rounded-full border-2 border-primary border-t-transparent animate-spin"></div>
+                  <div className="absolute inset-4 rounded-full border border-secondary/15 animate-reverse-spin"></div>
+                  <Brain className="w-10 h-10 text-secondary animate-pulse" />
+                </div>
 
-            <div className="text-center">
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-on-surface mb-2 shimmer">
-                Forging your path...
-              </h1>
-              <p className="text-sm text-on-surface-variant max-w-sm mx-auto leading-relaxed">
-                Our curriculum engine is analyzing your goals, stack background, and weekly availability schedule to generate an optimal path.
-              </p>
-            </div>
+                <div className="text-center">
+                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-on-surface mb-2 shimmer">
+                    Forging your path...
+                  </h1>
+                  <p className="text-sm text-on-surface-variant max-w-sm mx-auto leading-relaxed">
+                    Our n8n workflow engine is processing your goals, stack background, and time commitment to generate a custom roadmap.
+                  </p>
+                </div>
 
-            {/* Loading stage card */}
-            <div className="mt-10 w-full glass-panel border-white/10 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
-              <div className="flex flex-col gap-4 text-center">
-                <span className="font-mono text-xs text-secondary tracking-wide transition-opacity duration-300">
-                  {loadingPhrases[loadingStep]}
-                </span>
-                
-                {/* Horizontal progress indicators */}
-                <div className="h-1.5 w-full bg-surface-variant rounded-full overflow-hidden relative">
-                  <div 
-                    className="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-1000"
-                    style={{ width: `${((loadingStep + 1) / loadingPhrases.length) * 100}%` }}
-                  ></div>
+                {/* Loading stage card */}
+                <div className="mt-10 w-full glass-panel border-white/10 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+                  <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
+                  <div className="flex flex-col gap-4 text-center">
+                    <span className="font-mono text-xs text-secondary tracking-wide transition-opacity duration-300">
+                      {loadingPhrases[loadingStep]}
+                    </span>
+                    
+                    {/* Horizontal progress indicators */}
+                    <div className="h-1.5 w-full bg-surface-variant rounded-full overflow-hidden relative">
+                      <div 
+                        className="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-1000"
+                        style={{ width: `${((loadingStep + 1) / loadingPhrases.length) * 100}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* Error State Screen with Retry Options */
+              <div className="w-full glass-panel border-red-500/30 bg-red-950/20 rounded-2xl p-8 shadow-2xl text-center relative overflow-hidden flex flex-col items-center">
+                <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-4">
+                  <AlertCircle className="w-8 h-8 text-red-400" />
+                </div>
+                <h2 className="text-2xl font-bold text-white mb-2">Roadmap Generation Issue</h2>
+                <p className="text-xs text-red-200/80 max-w-md mx-auto mb-6 leading-relaxed bg-red-950/40 p-3 rounded-lg border border-red-500/20 font-mono">
+                  {roadmapGenerationError}
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
+                  <button
+                    onClick={handleGenerateRoadmap}
+                    className="flex-1 bg-primary hover:bg-[#8083ff] text-white py-3 px-5 rounded-lg font-semibold text-xs uppercase tracking-wider shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4" /> Retry Path Generation
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRoadmapGenerationError(null);
+                      setCurrentView("onboarding_4");
+                    }}
+                    className="bg-white/10 hover:bg-white/15 text-on-surface py-3 px-4 rounded-lg font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                  >
+                    Back to Onboarding
+                  </button>
                 </div>
               </div>
-            </div>
+            )}
           </main>
 
           <footer className="w-full text-center pb-8">
@@ -1262,8 +1494,8 @@ export default function App() {
                 <div className="stats-grid">
                   <article className="stat-card">
                     <span>Overall progress</span>
-                    <strong className="text-white">25%</strong>
-                    <div className="progress-track"><span style={{ width: '25%' }} /></div>
+                    <strong className="text-white">{roadmap.overallProgress}%</strong>
+                    <div className="progress-track"><span style={{ width: `${roadmap.overallProgress}%` }} /></div>
                   </article>
                   <article className="stat-card">
                     <span>Completed Nodes</span>
@@ -1286,7 +1518,7 @@ export default function App() {
                   
                   <div className="universe-canvas">
                     <SkillUniverse3D 
-                      skills={skills} 
+                      skills={dynamicSkills} 
                       selectedId={selectedSkill.id} 
                       onSelect={(s) => {
                         setSelectedSkill(s);
@@ -1371,12 +1603,29 @@ export default function App() {
                 <button 
                   className="continue-button mt-auto" 
                   disabled={selectedSkill.status === 'locked'}
-                  onClick={() => {
-                    const statusMsg = selectedSkill.status === 'completed' 
-                      ? `${selectedSkill.name} review opened` 
-                      : `${selectedSkill.name} lesson queued`;
-                    setNotice(statusMsg);
-                    window.setTimeout(() => setNotice(''), 2600);
+                  onClick={async () => {
+                    if (selectedSkill.status === 'completed') {
+                      setNotice(`${selectedSkill.name} review opened`);
+                      window.setTimeout(() => setNotice(''), 2600);
+                    } else if (selectedSkill.status === 'current') {
+                      const idMap: Record<string, string> = {
+                        fundamentals: "fundamentals",
+                        javascript: "js",
+                        apis: "apis",
+                        webhooks: "webhooks",
+                        agents: "ai_agents",
+                        rag: "ai_agents",
+                        portfolio: "ai_agents"
+                      };
+                      const targetId = idMap[selectedSkill.id] || selectedSkill.id;
+                      const matchMod = roadmap.modules.find(m => m.id === targetId);
+                      if (matchMod) {
+                        await handleMarkModuleCompleted(matchMod.id);
+                      } else {
+                        setNotice(`${selectedSkill.name} marked as complete!`);
+                        window.setTimeout(() => setNotice(''), 2600);
+                      }
+                    }
                   }}
                 >
                   <span>
@@ -1384,7 +1633,7 @@ export default function App() {
                       ? 'Complete prerequisites' 
                       : selectedSkill.status === 'completed' 
                         ? 'Review skill' 
-                        : 'Continue learning'}
+                        : 'Mark Node Mastered'}
                   </span>
                   {selectedSkill.status === 'locked' ? <Lock size={15} /> : <ArrowRight size={16} />}
                 </button>
@@ -1534,7 +1783,17 @@ export default function App() {
                                 >
                                   Ask Mentor to start code
                                 </button>
-                                <button className="border border-white/10 hover:bg-white/5 text-white font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all">
+                                <button 
+                                  onClick={async () => {
+                                    const apisMod = roadmap.modules.find(m => m.id === "apis" || m.id === "apis_integration");
+                                    if (apisMod) {
+                                      await handleMarkModuleCompleted(apisMod.id);
+                                    } else if (selectedModule) {
+                                      await handleMarkModuleCompleted(selectedModule.id);
+                                    }
+                                  }}
+                                  className="border border-[#44e2cd]/30 hover:bg-[#44e2cd]/5 text-[#44e2cd] font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
+                                >
                                   Mark as Completed
                                 </button>
                               </div>
@@ -1797,29 +2056,30 @@ export default function App() {
                       </h3>
 
                       <div className="space-y-4">
-                        {[
-                          { node: "Programming Fundamentals", pct: 100, status: "Mastered" },
-                          { node: "JavaScript & Async Systems", pct: 100, status: "Mastered" },
-                          { node: "React & Component Trees", pct: 100, status: "Mastered" },
-                          { node: "APIs & Integration Core", pct: 60, status: "In Progress" },
-                          { node: "Webhooks & Event Triggers", pct: 0, status: "Locked" },
-                          { node: "AI Agents & Autonomous LLMs", pct: 0, status: "Locked" }
-                        ].map((item, idx) => (
-                          <div key={idx} className="flex flex-col gap-1.5">
-                            <div className="flex justify-between items-center text-xs">
-                              <span className="font-semibold text-white">{item.node}</span>
-                              <span className="font-mono text-outline">{item.pct}% • {item.status}</span>
+                        {roadmap.modules.map((m, idx) => {
+                          let pct = 0;
+                          if (m.status === "Mastered") {
+                            pct = 100;
+                          } else if (m.status === "In Progress") {
+                            pct = 45;
+                          }
+                          return (
+                            <div key={idx} className="flex flex-col gap-1.5">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="font-semibold text-white">{m.title}</span>
+                                <span className="font-mono text-outline">{pct}% • {m.status}</span>
+                              </div>
+                              <div className="w-full bg-[#122131] h-2 rounded-full overflow-hidden">
+                                <div 
+                                  className={`h-full rounded-full transition-all duration-1000 ${
+                                    m.status === "Mastered" ? "bg-[#10b981]" : "bg-primary"
+                                  }`}
+                                  style={{ width: `${pct}%` }}
+                                ></div>
+                              </div>
                             </div>
-                            <div className="w-full bg-[#122131] h-2 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full rounded-full transition-all duration-1000 ${
-                                  item.status === "Mastered" ? "bg-[#10b981]" : "bg-primary"
-                                }`}
-                                style={{ width: `${item.pct}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -1940,19 +2200,38 @@ export default function App() {
 
                       <div className="pt-4 border-t border-white/5 flex flex-wrap gap-4">
                         <button 
-                          onClick={() => {
+                          onClick={async () => {
                             if (user && roadmap) {
-                              localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(roadmap));
+                              try {
+                                await saveRoadmap(user.uid, roadmap);
+                                setNotice("Curriculum settings calibrated and persisted successfully.");
+                                setTimeout(() => setNotice(""), 3000);
+                              } catch (err) {
+                                console.error("Error saving calibration to Firestore:", err);
+                              }
                             }
-                            alert("Curriculum settings calibrated and persisted successfully.");
                           }}
                           className="bg-primary hover:bg-[#8083ff] text-on-primary font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
                         >
                           Save Configurations
                         </button>
                         <button 
-                          onClick={() => {
-                            setCurrentView("onboarding_1");
+                          onClick={async () => {
+                            if (user) {
+                              if (confirm("Are you sure you want to completely reset your active roadmap? This will delete all your custom module configurations and progress in the Firestore database.")) {
+                                try {
+                                  await deleteRoadmap(user.uid);
+                                  await updateOnboardingStatus(false);
+                                  setRoadmap(null);
+                                  setSelectedModule(null);
+                                  setCurrentView("onboarding_1");
+                                } catch (err) {
+                                  console.error("Error deleting roadmap from Firestore:", err);
+                                }
+                              }
+                            } else {
+                              setCurrentView("onboarding_1");
+                            }
                           }}
                           className="border border-[#f43f5e]/30 hover:bg-[#f43f5e]/5 text-[#f43f5e] font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
                         >
