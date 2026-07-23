@@ -1,6 +1,6 @@
 {
   "name": "ForgePath AI",
   "description": "A customized AI-powered career navigator, personalized roadmap generator, and interactive study mentor command center.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

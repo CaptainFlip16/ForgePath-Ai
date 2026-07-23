@@ -38,7 +38,11 @@ import {
   FileCode,
   Gauge,
   LogOut,
-  User
+  User,
+  Mic,
+  MicOff,
+  Volume2,
+  Square
 } from "lucide-react";
 import { Roadmap, Module, ChatMessage } from "./types";
 import { generateFallbackRoadmap, normalizeN8nRoadmap, formatChatMessageText } from "./utils";
@@ -105,6 +109,174 @@ export default function App() {
     "Why do I need a webhook event handler?",
     "Review my Weather Dashboard project requirements."
   ]);
+
+  // Voice Input Speech Recognition state
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const baseTextRef = useRef<string>("");
+
+  // Text-to-Speech (Voice Output) state
+  const [speakingMsgIndex, setSpeakingMsgIndex] = useState<number | null>(null);
+
+  // Clean markdown and formatting symbols from response text before speaking
+  const cleanTextForSpeech = (rawText: string): string => {
+    if (!rawText) return "";
+    return rawText
+      .replace(/```[\s\S]*?```/g, " code block skipped. ")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/[*_]{1,3}([^*_]+)[*_]{1,3}/g, "$1")
+      .replace(/^\s*>\s+/gm, "")
+      .replace(/^\s*[-*+]\s+/gm, "")
+      .replace(/^\s*\d+\.\s+/gm, "")
+      .replace(/\n+/g, ". ")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
+
+  const stopSpeech = () => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    setSpeakingMsgIndex(null);
+  };
+
+  const handleSpeakMessage = (index: number, rawText: string) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setVoiceError("Text-to-speech is not supported in this browser.");
+      setTimeout(() => setVoiceError(null), 5000);
+      return;
+    }
+
+    // If already speaking this message, toggle stop
+    if (speakingMsgIndex === index) {
+      stopSpeech();
+      return;
+    }
+
+    // Cancel any current speech before starting a new one
+    window.speechSynthesis.cancel();
+
+    const textToSpeak = cleanTextForSpeech(rawText);
+    if (!textToSpeak) return;
+
+    try {
+      const utterance = new SpeechSynthesisUtterance(textToSpeak);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.lang = "en-US";
+
+      utterance.onstart = () => {
+        setSpeakingMsgIndex(index);
+      };
+
+      utterance.onend = () => {
+        setSpeakingMsgIndex(null);
+      };
+
+      utterance.onerror = (e) => {
+        console.warn("TTS speech synthesis error:", e);
+        setSpeakingMsgIndex(null);
+      };
+
+      window.speechSynthesis.speak(utterance);
+    } catch (err: any) {
+      console.error("Failed to start speech synthesis:", err);
+      setSpeakingMsgIndex(null);
+      setVoiceError("Could not start voice text-to-speech playback.");
+      setTimeout(() => setVoiceError(null), 5000);
+    }
+  };
+
+  // Clean up speech recognition and synthesis on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          // ignore
+        }
+      }
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const toggleVoiceInput = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceError("Speech recognition is not supported in this browser. Please try Chrome, Edge, or Safari.");
+      setTimeout(() => setVoiceError(null), 5000);
+      return;
+    }
+
+    if (isListening) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          console.error("Error stopping speech recognition:", e);
+        }
+      }
+      setIsListening(false);
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      baseTextRef.current = userMsgText;
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setVoiceError(null);
+      };
+
+      recognition.onresult = (event: any) => {
+        let fullTranscript = "";
+        for (let i = 0; i < event.results.length; i++) {
+          fullTranscript += event.results[i][0].transcript;
+        }
+        const prefix = baseTextRef.current ? baseTextRef.current.trim() + " " : "";
+        setUserMsgText(prefix + fullTranscript.trimStart());
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn("Speech recognition error:", event.error);
+        setIsListening(false);
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          setVoiceError("Microphone access was blocked. Please grant microphone permissions in your browser or open the app in a new tab.");
+        } else if (event.error === "no-speech") {
+          setVoiceError("No speech detected. Please speak clearly into your microphone.");
+        } else if (event.error === "network") {
+          setVoiceError("Network error: Chrome Web Speech API requires an active internet connection to process audio.");
+        } else if (event.error !== "aborted") {
+          setVoiceError(`Voice input error (${event.error}). Try opening the app in a new tab.`);
+        }
+        setTimeout(() => setVoiceError(null), 8000);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err: any) {
+      console.error("Failed to start speech recognition:", err);
+      setIsListening(false);
+      setVoiceError("Could not access microphone or start speech recognition.");
+      setTimeout(() => setVoiceError(null), 5000);
+    }
+  };
 
   // Loading animation state messages list
   const [loadingStep, setLoadingStep] = useState<number>(0);
@@ -482,6 +654,17 @@ export default function App() {
   const handleSendChatMessage = async (textToSend?: string) => {
     const rawText = textToSend || userMsgText;
     if (!rawText.trim()) return;
+
+    stopSpeech();
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // ignore
+      }
+    }
+    setIsListening(false);
 
     const updatedMsgs = [...chatMessages, { role: "user" as const, text: rawText }];
     setChatMessages(updatedMsgs);
@@ -1971,9 +2154,36 @@ export default function App() {
                             </div>
 
                             <div className="flex flex-col gap-1">
-                              <span className="text-[10px] font-mono text-outline">
-                                {isAI ? "Forge Mentor" : "Alex (You)"}
-                              </span>
+                              <div className="flex items-center justify-between gap-2 min-w-0">
+                                <span className="text-[10px] font-mono text-outline">
+                                  {isAI ? "Forge Mentor" : "Alex (You)"}
+                                </span>
+                                {isAI && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSpeakMessage(idx, msg.text)}
+                                    aria-label={speakingMsgIndex === idx ? "Stop reading response aloud" : "Read response aloud"}
+                                    title={speakingMsgIndex === idx ? "Stop reading response aloud" : "Read response aloud"}
+                                    className={`flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                                      speakingMsgIndex === idx
+                                        ? "bg-secondary/20 text-secondary border border-secondary/40 animate-pulse shadow-[0_0_10px_rgba(3,198,178,0.2)]"
+                                        : "text-on-surface-variant/70 hover:text-white hover:bg-white/5 border border-transparent"
+                                    }`}
+                                  >
+                                    {speakingMsgIndex === idx ? (
+                                      <>
+                                        <Square className="w-3 h-3 fill-current text-secondary" />
+                                        <span>Stop</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Volume2 className="w-3 h-3 text-secondary" />
+                                        <span>Listen</span>
+                                      </>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
                               <div className={`rounded-2xl p-4 text-xs leading-relaxed shadow-sm relative overflow-hidden border ${
                                 isAI 
                                   ? "bg-[#010f1f]/60 border-white/5 rounded-tl-sm text-on-surface" 
@@ -2028,12 +2238,57 @@ export default function App() {
                         ))}
                       </div>
 
+                      {/* Voice listening status indicator bar */}
+                      {isListening && (
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-[11px] font-mono animate-pulse">
+                          <div className="flex items-center gap-2">
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                            </span>
+                            <span>Listening... Speak into your microphone. Transcribing live into text input below.</span>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={toggleVoiceInput}
+                            className="text-[10px] text-red-300/90 hover:text-red-100 uppercase tracking-wider font-semibold cursor-pointer underline shrink-0"
+                          >
+                            Stop
+                          </button>
+                        </div>
+                      )}
+
+                      {voiceError && (
+                        <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-mono">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span className="truncate">{voiceError}</span>
+                          </div>
+                          <button 
+                            type="button" 
+                            onClick={() => setVoiceError(null)} 
+                            className="text-amber-300/70 hover:text-amber-200 cursor-pointer p-0.5 shrink-0"
+                            aria-label="Dismiss message"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+
                       {/* Actual rich text input panel */}
                       <div className="relative group">
                         <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-secondary/10 rounded-xl blur-xs opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
                         
-                        <div className="relative flex items-center gap-2 bg-[#05070a] border border-white/10 rounded-xl p-2 focus-within:border-secondary focus-within:shadow-[0_0_15px_rgba(3,198,178,0.15)] transition-all">
-                          <button className="p-2 text-on-surface-variant hover:text-white rounded-lg cursor-pointer">
+                        <div className={`relative flex items-center gap-2 bg-[#05070a] border rounded-xl p-2 transition-all ${
+                          isListening 
+                            ? "border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]" 
+                            : "border-white/10 focus-within:border-secondary focus-within:shadow-[0_0_15px_rgba(3,198,178,0.15)]"
+                        }`}>
+                          <button 
+                            type="button"
+                            className="p-2 text-on-surface-variant hover:text-white rounded-lg cursor-pointer"
+                            aria-label="Attach file"
+                          >
                             <Paperclip className="w-4 h-4" />
                           </button>
                           
@@ -2046,13 +2301,30 @@ export default function App() {
                                 handleSendChatMessage();
                               }
                             }}
-                            placeholder="Message Forge Mentor..."
+                            placeholder={isListening ? "Listening... Transcribing your question..." : "Message Forge Mentor..."}
                             className="w-full bg-transparent border-none text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:ring-0 outline-none py-2 px-2"
                           />
 
+                          {/* Voice input microphone button */}
                           <button 
+                            type="button"
+                            onClick={toggleVoiceInput}
+                            aria-label={isListening ? "Stop voice input" : "Start voice input"}
+                            title={isListening ? "Stop listening" : "Start voice input"}
+                            className={`p-2 rounded-lg flex items-center justify-center shrink-0 cursor-pointer transition-all ${
+                              isListening 
+                                ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.3)] hover:bg-red-500/30" 
+                                : "text-on-surface-variant hover:text-white hover:bg-white/5"
+                            }`}
+                          >
+                            {isListening ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className="w-4 h-4" />}
+                          </button>
+
+                          <button 
+                            type="button"
                             onClick={() => handleSendChatMessage()}
-                            className="bg-primary hover:bg-[#8083ff] text-on-primary p-2 rounded-lg flex items-center justify-center shadow-md cursor-pointer transition-all"
+                            aria-label="Send message"
+                            className="bg-primary hover:bg-[#8083ff] text-on-primary p-2 rounded-lg flex items-center justify-center shadow-md cursor-pointer transition-all shrink-0"
                           >
                             <Send className="w-4 h-4" />
                           </button>
