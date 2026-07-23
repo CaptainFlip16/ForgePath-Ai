@@ -136,15 +136,15 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
         {/* Logo and Greeting */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2.5 mb-3 cursor-pointer" onClick={onBackToHome}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-inverse-primary flex items-center justify-center shadow-lg shadow-primary/20">
-              <Compass className="text-on-primary w-5.5 h-5.5 animate-spin-slow" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-indigo-400/30">
+              <Compass className="text-white w-5 h-5 animate-spin-slow" />
             </div>
             <span className="font-sans font-bold text-xl tracking-tight text-white">ForgePath AI</span>
           </div>
           <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-white mt-1">
             {isSignUp ? "Forge Your Account" : "Access Your Workspace"}
           </h2>
-          <p className="text-xs text-on-surface-variant/80 mt-2 max-w-sm mx-auto">
+          <p className="text-xs text-slate-400 mt-2 max-w-sm mx-auto">
             {isSignUp 
               ? "Synthesize structural career paths and build production-grade portfolios with active AI mentoring."
               : "Welcome back. Initialize your active learning pipelines and continue your curriculum milestones."
@@ -153,8 +153,8 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
         </div>
 
         {/* Authentication Card */}
-        <div className="glass-panel border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-primary/30 to-transparent"></div>
+        <div className="glass-panel border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden bg-[#0c111d]/90">
+          <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent"></div>
           
           {/* Error Banner */}
           {error && !isUnauthorizedDomain && (
@@ -307,7 +307,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 w-full bg-[#494bd6] hover:bg-[#8083ff] text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/10 transition-all hover:shadow-indigo-500/20 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+              className="mt-2 w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider shadow-lg shadow-indigo-500/25 transition-all hover:shadow-indigo-500/40 active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:pointer-events-none border border-indigo-400/30"
             >
               {loading ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>

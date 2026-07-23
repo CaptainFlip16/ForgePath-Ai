@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
 import { SkillUniverse3D } from "./components/SkillUniverse3D";
 import { skills, currentSkill, type Skill } from "./roadmap-data";
 import { 
@@ -40,7 +41,7 @@ import {
   User
 } from "lucide-react";
 import { Roadmap, Module, ChatMessage } from "./types";
-import { generateFallbackRoadmap, normalizeN8nRoadmap } from "./utils";
+import { generateFallbackRoadmap, normalizeN8nRoadmap, formatChatMessageText } from "./utils";
 import { useAuth } from "./lib/AuthContext";
 import { AuthPage } from "./components/AuthPage";
 import { 
@@ -477,7 +478,7 @@ export default function App() {
     }
   };
 
-  // 2. Core API call: Send messages to Gemini AI Mentor API
+  // 2. Core API call: Send user question and UID to n8n AI Mentor Webhook
   const handleSendChatMessage = async (textToSend?: string) => {
     const rawText = textToSend || userMsgText;
     if (!rawText.trim()) return;
@@ -487,39 +488,58 @@ export default function App() {
     setUserMsgText("");
     setIsChatLoading(true);
 
-    const activeModTitle = selectedModule ? selectedModule.title : "APIs";
-    const activeProjectTitle = selectedModule?.recommendedProject?.title || "Weather Intelligence Dashboard";
-
-    const contextPayload = {
-      pathName: roadmap?.pathName || targetCareer || "AI Automation Developer",
-      focusTitle: activeModTitle,
-      projectTitle: activeProjectTitle
-    };
+    const loggedInUid = user?.uid || "guest_user";
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("https://ahmadontech.app.n8n.cloud/webhook/forgepath/ai-mentor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: updatedMsgs,
-          context: contextPayload
+          uid: loggedInUid,
+          question: rawText
         }),
       });
 
       if (!res.ok) {
-        throw new Error("Forge Mentor network interruption.");
+        throw new Error(`n8n Webhook returned status ${res.status}`);
       }
 
       const responseData = await res.json();
+      const rawOutput = Array.isArray(responseData)
+        ? (responseData[0]?.output || responseData[0]?.text || JSON.stringify(responseData[0]))
+        : (responseData?.output || responseData?.text || (typeof responseData === "string" ? responseData : JSON.stringify(responseData)));
+
+      const outputText = formatChatMessageText(rawOutput || "No response received.");
+
       setChatMessages((prev) => [
         ...prev,
-        { role: "model", text: responseData.text || "I am processing the logic. Let's trace back." }
+        { role: "model", text: outputText }
       ]);
     } catch (err: any) {
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "model", text: `[Forge Mentor offline mode]: I encountered an integration hiccup. Let's focus on mastering ${activeModTitle} and coding your "${activeProjectTitle}" dashboard.` }
-      ]);
+      console.warn("Direct webhook fetch failed, trying proxy endpoint:", err);
+      try {
+        const proxyRes = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            uid: loggedInUid,
+            question: rawText,
+            messages: updatedMsgs
+          })
+        });
+        const proxyData = await proxyRes.json();
+        const rawOutput = proxyData.output || proxyData.text || "No response received.";
+        const outputText = formatChatMessageText(rawOutput);
+        setChatMessages((prev) => [
+          ...prev,
+          { role: "model", text: outputText }
+        ]);
+      } catch (proxyErr) {
+        setChatMessages((prev) => [
+          ...prev,
+          { role: "model", text: "Sorry, I encountered an issue connecting to the AI Mentor service. Please try asking again." }
+        ]);
+      }
     } finally {
       setIsChatLoading(false);
     }
@@ -587,25 +607,25 @@ export default function App() {
       {currentView === "home" && (
         <div className="relative z-10 flex flex-col min-h-screen">
           {/* Main Top Header */}
-          <header className="fixed top-0 w-full z-50 bg-[#051424]/80 backdrop-blur-md border-b border-white/5 shadow-sm">
+          <header className="fixed top-0 w-full z-50 bg-[#090d16]/85 backdrop-blur-md border-b border-white/10 shadow-sm">
             <div className="max-w-7xl mx-auto flex justify-between items-center px-6 h-16">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-inverse-primary flex items-center justify-center shadow-lg shadow-primary/20">
-                  <Compass className="text-on-primary w-5 h-5 animate-spin-slow" />
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView("home")}>
+                <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-indigo-400/30">
+                  <Compass className="text-white w-5 h-5 animate-spin-slow" />
                 </div>
-                <span className="font-sans font-bold text-lg tracking-tight text-primary">ForgePath AI</span>
+                <span className="font-sans font-bold text-lg tracking-tight text-white">ForgePath AI</span>
               </div>
               
               <div className="hidden md:flex items-center gap-8">
-                <a className="text-sm font-medium text-primary hover:text-[#e1e0ff] transition-colors" href="#">Home Overview</a>
-                <a className="text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors" href="#">Roadmaps</a>
-                <a className="text-sm font-medium text-on-surface-variant hover:text-on-surface transition-colors" href="#">AI Mentor Hub</a>
+                <a className="text-xs font-semibold text-indigo-400 hover:text-white transition-colors" href="#">Home Overview</a>
+                <a className="text-xs font-semibold text-slate-400 hover:text-white transition-colors" href="#how-it-works">Roadmaps</a>
+                <a className="text-xs font-semibold text-slate-400 hover:text-white transition-colors" href="#features">AI Mentor Hub</a>
               </div>
 
               <div className="flex items-center gap-4">
                 {user ? (
                   <>
-                    <span className="hidden sm:inline text-xs text-on-surface-variant font-medium">
+                    <span className="hidden sm:inline text-xs text-slate-400 font-medium">
                       Hey, <span className="text-white font-semibold">{profile?.fullName || user.email}</span>
                     </span>
                     <button 
@@ -616,7 +636,7 @@ export default function App() {
                           setCurrentView("onboarding_1");
                         }
                       }}
-                      className="bg-primary/20 hover:bg-primary/35 border border-primary/30 text-white text-xs uppercase tracking-wider font-semibold py-2 px-4 rounded-lg transition-all cursor-pointer"
+                      className="bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-white text-xs uppercase tracking-wider font-semibold py-2 px-4 rounded-lg transition-all cursor-pointer"
                     >
                       Dashboard
                     </button>
@@ -625,7 +645,7 @@ export default function App() {
                         logOut();
                         setCurrentView("home");
                       }}
-                      className="text-on-surface-variant hover:text-white text-xs font-semibold py-2 px-3 transition-colors cursor-pointer"
+                      className="text-slate-400 hover:text-white text-xs font-semibold py-2 px-3 transition-colors cursor-pointer"
                     >
                       Sign Out
                     </button>
@@ -634,13 +654,13 @@ export default function App() {
                   <>
                     <button 
                       onClick={() => setCurrentView("auth")}
-                      className="text-on-surface-variant hover:text-white text-xs font-semibold py-2 px-4 transition-colors cursor-pointer"
+                      className="text-slate-300 hover:text-white text-xs font-semibold py-2 px-4 transition-colors cursor-pointer"
                     >
                       Sign In
                     </button>
                     <button 
                       onClick={handleBuildMyPathClick}
-                      className="bg-[#494bd6] hover:bg-[#8083ff] text-white text-xs uppercase tracking-wider font-semibold py-2.5 px-5 rounded-lg transition-all hover:scale-[1.02] cursor-pointer"
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase tracking-wider font-bold py-2.5 px-5 rounded-lg transition-all hover:scale-[1.02] cursor-pointer shadow-lg shadow-indigo-500/20 border border-indigo-400/30"
                     >
                       Build My Path
                     </button>
@@ -666,14 +686,14 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row gap-4 mt-4">
                   <button 
                     onClick={handleBuildMyPathClick}
-                    className="bg-[#494bd6] hover:bg-[#8083ff] text-white text-xs uppercase tracking-wider font-semibold py-4 px-8 rounded-lg shadow-lg hover:shadow-indigo-500/30 transition-all flex items-center justify-center gap-2 group hover:translate-y-[-1px]"
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase tracking-wider font-bold py-4 px-8 rounded-xl shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 group hover:translate-y-[-1px] border border-indigo-400/30"
                   >
                     Build My Path
                     <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                   </button>
                   <a 
                     href="#how-it-works"
-                    className="border border-outline hover:bg-white/5 text-on-background text-xs uppercase tracking-wider font-semibold py-4 px-8 rounded-lg transition-all text-center"
+                    className="border border-white/10 hover:border-white/20 hover:bg-white/5 text-white text-xs uppercase tracking-wider font-semibold py-4 px-8 rounded-xl transition-all text-center"
                   >
                     Explore How It Works
                   </a>
@@ -1959,7 +1979,13 @@ export default function App() {
                                   ? "bg-[#010f1f]/60 border-white/5 rounded-tl-sm text-on-surface" 
                                   : "bg-primary/5 border-primary/20 rounded-tr-sm text-white"
                               }`}>
-                                <p>{msg.text}</p>
+                                {isAI ? (
+                                  <div className="markdown-body space-y-2 text-xs text-on-surface [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_code]:bg-white/10 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:font-mono [&_pre]:bg-black/60 [&_pre]:p-3 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:my-2 [&_h1]:text-sm [&_h1]:font-bold [&_h2]:text-xs [&_h2]:font-bold [&_h3]:text-xs [&_h3]:font-semibold [&_a]:text-secondary [&_a]:underline">
+                                    <ReactMarkdown>{formatChatMessageText(msg.text)}</ReactMarkdown>
+                                  </div>
+                                ) : (
+                                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                                )}
                               </div>
                             </div>
                           </div>

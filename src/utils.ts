@@ -206,3 +206,71 @@ export function generateFallbackRoadmap(become: string, build: string, skills: s
     modules: modules
   };
 }
+
+/**
+ * Formats AI chat messages according to UI formatting guidelines:
+ * 1. Converts Markdown headings (# or ##) into simple bolding (**Header**).
+ * 2. Converts Markdown pipe tables into clean bulleted list items.
+ * 3. Ensures clean spacing between sections.
+ */
+export function formatChatMessageText(text: string): string {
+  if (!text) return "";
+
+  // 1. Replace markdown headers (# Header, ## Header, ### Header) with bold text **Header**
+  let formatted = text.replace(/^(#{1,6})\s+(.+)$/gm, (_, _hash, content) => {
+    return `**${content.trim()}**`;
+  });
+
+  // 2. Parse and convert Markdown tables (lines with pipe characters '|') into bullet points
+  const lines = formatted.split("\n");
+  const processedLines: string[] = [];
+  let inTable = false;
+  let headers: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    // Check if line looks like a table row (contains | and has at least 2 columns)
+    if (line.startsWith("|") || (line.includes("|") && line.endsWith("|"))) {
+      // Split by pipe
+      const cells = line
+        .split("|")
+        .map((c) => c.trim())
+        .filter((c, idx, arr) => idx > 0 && idx < arr.length - 1);
+
+      // Check if this is a separator line (e.g. |---|---| or |:---|)
+      const isSeparator = cells.length > 0 && cells.every((c) => /^[:\-\s]+$/.test(c));
+
+      if (isSeparator) {
+        inTable = true;
+        continue;
+      }
+
+      if (!inTable && cells.length > 0) {
+        // This is the header row
+        headers = cells;
+        inTable = true;
+      } else if (cells.length > 0) {
+        // This is a data row
+        const rowParts = cells.map((cell, idx) => {
+          const headerLabel = headers[idx] ? `**${headers[idx]}**: ` : "";
+          return `${headerLabel}${cell}`;
+        });
+        processedLines.push(`• ${rowParts.join(" — ")}`);
+      }
+    } else {
+      if (inTable) {
+        inTable = false;
+        headers = [];
+      }
+      processedLines.push(lines[i]);
+    }
+  }
+
+  formatted = processedLines.join("\n");
+
+  // 3. Clean up excessive blank lines (more than 2 consecutive newlines)
+  formatted = formatted.replace(/\n{3,}/g, "\n\n").trim();
+
+  return formatted;
+}

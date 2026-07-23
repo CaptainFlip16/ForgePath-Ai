@@ -189,31 +189,55 @@ Ensure the roadmap is completely customized to the goal of becoming a "${become}
   }
 });
 
-// 3. API Endpoint: AI Mentor Chat
+// 3. API Endpoint: AI Mentor Chat (n8n Webhook Integration)
 app.post("/api/chat", async (req, res) => {
   try {
-    const { messages, context } = req.body;
-    // context contains details of their goal, current module, etc.
+    const { uid, question, messages, context } = req.body;
+    const userQuestion = question || (messages && messages[messages.length - 1]?.text) || "";
+    const userUid = uid || "guest_user";
 
+    // Forward request to n8n webhook
+    try {
+      const webhookRes = await fetch("https://ahmadontech.app.n8n.cloud/webhook/forgepath/ai-mentor", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid: userUid,
+          question: userQuestion
+        }),
+      });
+
+      if (webhookRes.ok) {
+        const webhookData = await webhookRes.json();
+        const output = Array.isArray(webhookData)
+          ? (webhookData[0]?.output || webhookData[0]?.text)
+          : (webhookData?.output || webhookData?.text);
+
+        if (output) {
+          return res.json({ output, text: output });
+        }
+      }
+    } catch (n8nErr) {
+      console.warn("Server-side n8n webhook forward warning:", n8nErr);
+    }
+
+    // Fallback to Gemini if n8n webhook does not respond
     const systemPrompt = `
 You are Forge Mentor, an advanced, elite AI career advisor and engineering mentor integrated inside the ForgePath AI platform.
-You are helping Alex, a student who is currently pursuing the path: "${context?.pathName || "AI Automation Developer"}".
-Alex's current learning focus is: "${context?.focusTitle || "APIs"}".
-Alex is currently working on the project: "${context?.projectTitle || "Weather Intelligence Dashboard"}".
+You are helping a student currently pursuing the path: "${context?.pathName || "AI Automation Developer"}".
 
-Your tone:
-- Highly professional, encouraging, practical, and direct.
-- Never use flowery, verbose, or generic introductory phrases like "As an AI..."
-- Speak as a senior software architect who wants Alex to build production-quality portfolios.
-- Provide crisp explanations, debug assistance, and small practice challenges if asked.
-- Reference the active module ("${context?.focusTitle}") and active project ("${context?.projectTitle}") where relevant to ground the conversation.
+CRITICAL FORMATTING RULES FOR CHAT DISPLAY:
+- Do NOT output Markdown tables using pipe characters (|) or dashed separators.
+- Do NOT output multi-column raw markdown grids.
+- Present all structured information, weekly plans, and dependency maps as clean, readable bullet points or numbered lists.
+- Use simple bolding (**like this**) for headers and emphasis instead of Markdown headings (# or ##).
+- Ensure line breaks are clear between sections so the user interface renders the response as clean, styled text.
 `;
 
-    // Translate messages to GenAI contents structure
-    const chatContents = messages.map((m: any) => ({
+    const chatContents = messages ? messages.map((m: any) => ({
       role: m.role === "user" ? "user" : "model",
       parts: [{ text: m.text }],
-    }));
+    })) : [{ role: "user", parts: [{ text: userQuestion }] }];
 
     const response = await generateContentWithRetry({
       primaryModel: "gemini-3.5-flash",
@@ -224,7 +248,7 @@ Your tone:
       },
     });
 
-    res.json({ text: response.text });
+    res.json({ output: response.text, text: response.text });
   } catch (err: any) {
     console.error("Error in AI Mentor chat:", err);
     res.status(500).json({ error: err.message || "AI Mentor is currently offline." });
