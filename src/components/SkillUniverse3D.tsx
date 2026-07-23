@@ -187,30 +187,39 @@ function SkillNode({
       </Html>
     </group>
   )
-}
-
-function CameraRig() {
+}function CameraRig() {
   const { camera, size } = useThree()
   useEffect(() => {
-    camera.position.set(0, size.width < 700 ? 1.2 : 0.7, size.width < 700 ? 15.5 : 12.5)
-    camera.lookAt(0, 0, 0)
+    const isSmall = size.width < 700
+    camera.position.set(0, isSmall ? 1.6 : 0.8, isSmall ? 19.5 : 16.5)
+    camera.lookAt(0.05, 0, 0)
   }, [camera, size.width])
   return null
 }
 
 function Scene({ skills, selectedId, onSelect, reducedMotion }: SkillUniverseProps & { reducedMotion: boolean }) {
+  const controlsRef = useRef<any>(null)
+
+  useEffect(() => {
+    if (controlsRef.current) {
+      controlsRef.current.zoomToCursor = true
+      controlsRef.current.target.set(0.05, 0, 0)
+      controlsRef.current.update()
+    }
+  }, [])
+
   return (
     <>
       <color attach="background" args={[colors.ink]} />
-      <fog attach="fog" args={[colors.ink, 13, 28]} />
+      <fog attach="fog" args={[colors.ink, 22, 50]} />
       <CameraRig />
       <ambientLight intensity={0.2} />
       <hemisphereLight args={[colors.lavender, colors.ink, 0.55]} />
       <directionalLight position={[-4, 6, 8]} intensity={3.4} color={colors.white} />
       <pointLight position={[4, -2, 3]} intensity={12} distance={11} color={colors.cyan} />
       <Stars radius={42} depth={26} count={3200} factor={2.3} saturation={0.32} fade speed={reducedMotion ? 0 : 0.12} />
-      <Sparkles count={240} scale={[19, 2.8, 8]} size={1.7} speed={reducedMotion ? 0 : 0.08} color={colors.lavender} opacity={0.3} />
-      <Sparkles count={110} scale={[17, 5, 7]} size={0.8} speed={reducedMotion ? 0 : 0.04} color={colors.white} opacity={0.42} />
+      <Sparkles count={240} scale={[24, 4, 10]} size={1.7} speed={reducedMotion ? 0 : 0.08} color={colors.lavender} opacity={0.3} />
+      <Sparkles count={110} scale={[22, 6, 8]} size={0.8} speed={reducedMotion ? 0 : 0.04} color={colors.white} opacity={0.42} />
       {skills.slice(0, -1).map((skill, index) => (
         <Connection
           key={`${skill.id}-${skills[index + 1].id}`}
@@ -229,15 +238,19 @@ function Scene({ skills, selectedId, onSelect, reducedMotion }: SkillUniversePro
         />
       ))}
       <OrbitControls
-        enablePan={false}
+        ref={controlsRef}
+        zoomToCursor={true}
+        enablePan={true}
+        enableRotate={true}
+        screenSpacePanning={true}
+        panSpeed={1.4}
+        rotateSpeed={0.8}
         enableDamping
         dampingFactor={0.08}
-        minDistance={9}
-        maxDistance={17}
-        minPolarAngle={Math.PI * 0.38}
-        maxPolarAngle={Math.PI * 0.62}
-        minAzimuthAngle={-0.28}
-        maxAzimuthAngle={0.28}
+        minDistance={2}
+        maxDistance={35}
+        minPolarAngle={0.05}
+        maxPolarAngle={Math.PI - 0.05}
       />
     </>
   )
@@ -255,8 +268,8 @@ export function SkillUniverse3D(props: SkillUniverseProps) {
   }, [])
 
   return (
-    <div className="universe-canvas" aria-label="Interactive learning path visualization" style={{ width: '100%', height: '100%', minHeight: '340px' }}>
-      <Canvas dpr={[1, 1.5]} gl={{ antialias: true, alpha: true }} camera={{ fov: 42 }}>
+    <div className="universe-canvas relative w-full h-full min-h-[360px] lg:min-h-[420px] flex-1 flex flex-col" aria-label="Interactive learning path visualization">
+      <Canvas dpr={[1, 1.5]} gl={{ antialias: true, alpha: true }} camera={{ fov: 42 }} style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
         <Scene {...props} reducedMotion={reducedMotion} />
       </Canvas>
       <div className="canvas-hint" aria-hidden="true">Drag to explore · select a skill</div>

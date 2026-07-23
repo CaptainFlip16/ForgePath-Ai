@@ -100,7 +100,7 @@ export default function App() {
 
   // Chat Interface state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { role: "model", text: "Hello Alex! I see you're starting your custom AI path. How can I assist you with your current focus or help you write some code today?" }
+    { role: "model", text: "Hello! I see you're starting your custom AI path. How can I assist you with your current focus or help you write some code today?" }
   ]);
   const [userMsgText, setUserMsgText] = useState<string>("");
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
@@ -372,6 +372,24 @@ export default function App() {
     }
   }, [user, profile, currentView]);
 
+  // Synchronize AI Mentor greeting with logged-in user's name
+  useEffect(() => {
+    const activeUserName = profile?.fullName || user?.displayName || (user?.email ? user.email.split('@')[0] : null);
+    if (activeUserName) {
+      setChatMessages(prev => {
+        if (prev.length > 0 && prev[0].role === 'model') {
+          const newGreeting = `Hello ${activeUserName}! I see you're starting your custom AI path. How can I assist you with your current focus or help you write some code today?`;
+          if (prev[0].text !== newGreeting && (prev[0].text.startsWith('Hello') || prev.length === 1)) {
+            const copy = [...prev];
+            copy[0] = { ...copy[0], text: newGreeting };
+            return copy;
+          }
+        }
+        return prev;
+      });
+    }
+  }, [user, profile]);
+
   // Synchronize 3D Skill Universe node statuses dynamically with the active Firestore roadmap modules
   useEffect(() => {
     if (!roadmap || !roadmap.modules || roadmap.modules.length === 0) return;
@@ -494,7 +512,7 @@ export default function App() {
         }
       }
       
-      const fallbackData = generateFallbackRoadmap(profile?.fullName || "Alex", "Custom Application Portfolio", ["Programming Fundamentals"]);
+      const fallbackData = generateFallbackRoadmap(profile?.fullName || user?.displayName || user?.email?.split('@')[0] || "Learner", "Custom Application Portfolio", ["Programming Fundamentals"]);
       setRoadmap(fallbackData);
       const inProgressMod = fallbackData.modules.find((m) => m.status === "In Progress");
       setSelectedModule(inProgressMod || fallbackData.modules[3] || fallbackData.modules[0]);
@@ -1631,7 +1649,7 @@ export default function App() {
                       {profile?.fullName?.charAt(0) || user.email?.charAt(0) || "A"}
                     </div>
                     <div className="flex-grow min-w-0">
-                      <p className="text-[10px] font-bold text-white truncate leading-tight">{profile?.fullName || "Alex"}</p>
+                      <p className="text-[10px] font-bold text-white truncate leading-tight">{profile?.fullName || user?.displayName || user?.email?.split('@')[0] || "Learner"}</p>
                       <p className="text-[8px] font-mono text-outline truncate leading-normal">{user.email}</p>
                     </div>
                   </div>
@@ -2075,10 +2093,10 @@ export default function App() {
 
               {/* TAB 3: AI MENTOR */}
               {activeTab === "ai-mentor" && (
-                <div className="flex flex-col lg:flex-row gap-8 h-[calc(100vh-14rem)] overflow-hidden">
+                <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 h-auto lg:h-[calc(100vh-14rem)] overflow-visible lg:overflow-hidden">
                   
-                  {/* Left Column: Context Navigator widget */}
-                  <aside className="w-full lg:w-80 shrink-0 flex flex-col gap-6 overflow-y-auto">
+                  {/* Left Column: Context Navigator widget (order-2 on mobile so chat comes first!) */}
+                  <aside className="order-2 lg:order-1 w-full lg:w-80 shrink-0 flex flex-col gap-6 overflow-y-auto">
                     <div className="glass-panel rounded-2xl p-6 border-white/5 bg-[#0a0f1a]/40">
                       <h3 className="text-md font-bold mb-4 text-white flex items-center gap-2">
                         <Brain className="text-secondary w-5 h-5 animate-pulse" /> Active Context
@@ -2120,7 +2138,7 @@ export default function App() {
                   </aside>
 
                   {/* Right Column: Complete Chat container */}
-                  <section className="flex-1 glass-panel rounded-2xl flex flex-col overflow-hidden relative border-white/10 shadow-2xl">
+                  <section className="order-1 lg:order-2 flex-1 glass-panel rounded-2xl flex flex-col overflow-hidden relative border-white/10 shadow-2xl h-[580px] sm:h-[620px] lg:h-full min-h-[480px]">
                     {/* Chat Header */}
                     <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-[#010f1f]">
                       <div className="flex items-center gap-3">
@@ -2152,7 +2170,7 @@ export default function App() {
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center justify-between gap-2 min-w-0">
                                 <span className="text-[10px] font-mono text-outline">
-                                  {isAI ? "Forge Mentor" : "Alex (You)"}
+                                  {isAI ? "Forge Mentor" : `${profile?.fullName || user?.displayName || user?.email?.split('@')[0] || "You"} (You)`}
                                 </span>
                                 {isAI && (
                                   <button
@@ -2424,7 +2442,7 @@ export default function App() {
                         <div className="flex flex-col gap-1.5">
                           <span className="font-mono text-[9px] text-outline uppercase tracking-wider">Full Developer Name</span>
                           <span className="font-semibold text-white bg-[#0F172A] border border-white/5 rounded-xl px-4 py-3">
-                            {profile?.fullName || "Alex"}
+                            {profile?.fullName || user?.displayName || user?.email?.split('@')[0] || "Learner"}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1.5">
