@@ -191,6 +191,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     setError(null);
+    if (!auth || !googleProvider) {
+      throw new Error("Firebase Auth is not configured. Please enter your Firebase environment variables or use Email & Password Sign In.");
+    }
     setLoading(true);
     try {
       const result = await signInWithPopup(auth, googleProvider);

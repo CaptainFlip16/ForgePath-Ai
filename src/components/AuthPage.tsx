@@ -115,13 +115,13 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
         onAuthSuccess(false); // Go to homepage/dashboard immediately!
       }
     } catch (err: any) {
-      console.error(err);
-      let errMsg = err.message || "Google authentication was cancelled or failed.";
+      console.error("Google Auth error:", err);
+      let errMsg = err.message || "Google authentication failed.";
       if (err.code === "auth/unauthorized-domain" || err.message?.includes("unauthorized-domain") || err.message?.includes("auth/unauthorized-domain")) {
         setIsUnauthorizedDomain(true);
         errMsg = "Unauthorized Domain: This hosting domain is not authorized in your Firebase console.";
-      } else if (err.code === "auth/popup-closed-by-user" || err.message?.includes("popup-closed-by-user")) {
-        errMsg = "The Google sign-in window was closed before completion. Please try again.";
+      } else if (err.code === "auth/popup-closed-by-user" || err.message?.includes("popup-closed-by-user") || err.code === "auth/cancelled-popup-request" || err.message?.includes("cancelled-popup-request") || err.code === "auth/popup-blocked") {
+        errMsg = "Google sign-in popup closed or was blocked by browser iframe security. Please use Email & Password Sign In below or click 'Open App in New Tab' to sign in with Google in a standalone tab.";
       }
       setError(errMsg);
     } finally {
@@ -341,7 +341,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.85z" fill="#FBBC05"/>
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.85c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
             </svg>
-            Google Identity Protocol
+            Sign in with Google
           </button>
 
           {/* Switch link */}

@@ -48,6 +48,7 @@ import { Roadmap, Module, ChatMessage } from "./types";
 import { generateFallbackRoadmap, normalizeN8nRoadmap, formatChatMessageText } from "./utils";
 import { useAuth } from "./lib/AuthContext";
 import { AuthPage } from "./components/AuthPage";
+import simpleRoadMapImg from "./assets/images/simple_road_pin_map_1784812763624.jpg";
 import { 
   saveOnboarding, 
   getOnboarding, 
@@ -538,6 +539,8 @@ export default function App() {
       projectGoal: desiredOutcome
     };
 
+    let normalizedRoadmap: Roadmap | null = null;
+
     try {
       const webhookUrl = "https://ahmadontech.app.n8n.cloud/webhook/forgepath/generate-roadmap";
       console.log("Posting onboarding payload to n8n production webhook:", webhookUrl, n8nPayload);
@@ -550,15 +553,30 @@ export default function App() {
         body: JSON.stringify(n8nPayload)
       });
 
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        throw new Error(`n8n Webhook returned status ${res.status}: ${errText || res.statusText || "Server error"}`);
+      const resText = await res.text().catch(() => "");
+
+      if (res.ok && resText && resText.trim()) {
+        try {
+          const responseData = JSON.parse(resText);
+          console.log("Received n8n Webhook response:", responseData);
+          normalizedRoadmap = normalizeN8nRoadmap(responseData, n8nPayload.goal, n8nPayload.desiredOutcome);
+        } catch (jsonErr) {
+          console.warn("Could not parse or normalize n8n response, using fallback roadmap generator:", jsonErr);
+        }
+      } else {
+        console.warn(`n8n webhook returned status ${res.status} or empty response body. Utilizing fallback roadmap.`);
       }
+    } catch (err: any) {
+      console.warn("Error invoking n8n roadmap generation webhook, utilizing local roadmap generator:", err);
+    }
 
-      const responseData = await res.json();
-      console.log("Received n8n Webhook response:", responseData);
+    // Fallback if n8n returned empty or invalid JSON response
+    if (!normalizedRoadmap) {
+      console.log("Generating customized fallback roadmap for goal:", n8nPayload.goal);
+      normalizedRoadmap = generateFallbackRoadmap(n8nPayload.goal, n8nPayload.desiredOutcome, n8nPayload.currentSkills);
+    }
 
-      const normalizedRoadmap = normalizeN8nRoadmap(responseData, n8nPayload.goal, n8nPayload.desiredOutcome);
+    try {
       setRoadmap(normalizedRoadmap);
 
       // Select initial "In Progress" module
@@ -587,11 +605,11 @@ export default function App() {
 
       setIsGeneratingRoadmap(false);
       setCurrentView("dashboard");
-    } catch (err: any) {
-      console.error("Error invoking n8n roadmap generation webhook:", err);
-      const errMsg = err?.message || "Failed to generate roadmap from n8n production workflow.";
-      setRoadmapGenerationError(errMsg);
+    } catch (saveErr: any) {
+      console.error("Error persisting generated roadmap:", saveErr);
+      // Ensure user is taken to dashboard regardless of Firestore save latency
       setIsGeneratingRoadmap(false);
+      setCurrentView("dashboard");
     }
   };
 
@@ -683,14 +701,23 @@ export default function App() {
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`n8n Webhook returned status ${res.status}`);
+      const resText = await res.text().catch(() => "");
+      let rawOutput = "";
+
+      if (res.ok && resText && resText.trim()) {
+        try {
+          const responseData = JSON.parse(resText);
+          rawOutput = Array.isArray(responseData)
+            ? (responseData[0]?.output || responseData[0]?.text || JSON.stringify(responseData[0]))
+            : (responseData?.output || responseData?.text || (typeof responseData === "string" ? responseData : JSON.stringify(responseData)));
+        } catch (e) {
+          rawOutput = resText;
+        }
       }
 
-      const responseData = await res.json();
-      const rawOutput = Array.isArray(responseData)
-        ? (responseData[0]?.output || responseData[0]?.text || JSON.stringify(responseData[0]))
-        : (responseData?.output || responseData?.text || (typeof responseData === "string" ? responseData : JSON.stringify(responseData)));
+      if (!rawOutput) {
+        throw new Error(`n8n Webhook returned status ${res.status}`);
+      }
 
       const outputText = formatChatMessageText(rawOutput || "No response received.");
 
@@ -884,49 +911,14 @@ export default function App() {
               </div>
 
               {/* Sophisticated visual map display */}
-              <div className="relative w-full h-[450px] lg:h-[550px] rounded-2xl overflow-hidden glass-panel flex items-center justify-center group ai-glow border-white/10 shadow-2xl">
-                <div className="absolute inset-0 bg-[#122131]/30 opacity-50 z-0"></div>
-                
-                {/* Visual backdrop of connected paths */}
-                <div className="absolute inset-0 z-0 opacity-40">
-                  <svg className="w-full h-full" xmlns="http://www.w3.org/2000/svg">
-                    <line x1="20%" y1="80%" x2="40%" y2="60%" stroke="#c0c1ff" strokeWidth="2" strokeDasharray="5,5" />
-                    <line x1="40%" y1="60%" x2="50%" y2="35%" stroke="#44e2cd" strokeWidth="3" />
-                    <line x1="50%" y1="35%" x2="80%" y2="20%" stroke="#44e2cd" strokeWidth="3" strokeDasharray="3,3" />
-                    <circle cx="20%" cy="80%" r="6" fill="#10b981" />
-                    <circle cx="40%" cy="60%" r="8" fill="#c0c1ff" />
-                    <circle cx="50%" cy="35%" r="12" fill="#44e2cd" className="animate-pulse" />
-                    <circle cx="80%" cy="20%" r="6" fill="#475569" />
-                  </svg>
-                </div>
-
-                {/* Decorative Float Cards */}
-                <div className="absolute top-12 left-8 glass-panel p-4 rounded-xl z-10 flex items-center gap-3 animate-bounce-slow">
-                  <div className="w-9 h-9 rounded-full bg-primary-container/20 flex items-center justify-center border border-primary/30">
-                    <Code className="text-primary w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="font-mono text-xs text-primary">Node: JS_Core</div>
-                    <div className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider">Mastered</div>
-                  </div>
-                </div>
-
-                <div className="absolute bottom-20 right-8 glass-panel p-4 rounded-xl z-10 flex items-center gap-3 animate-pulse">
-                  <div className="w-9 h-9 rounded-full bg-secondary-container/20 flex items-center justify-center border border-secondary/30">
-                    <Brain className="text-secondary w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="font-mono text-xs text-secondary">Target: AI_Agents</div>
-                    <div className="text-[10px] text-on-surface-variant font-bold uppercase tracking-wider">In Progress</div>
-                  </div>
-                </div>
-
-                {/* Center visual glow node */}
-                <div className="relative z-10 p-8 text-center rounded-2xl glass-panel max-w-xs border-white/20">
-                  <Workflow className="w-12 h-12 text-[#2dd4bf] mx-auto mb-4 animate-pulse" />
-                  <h3 className="font-semibold text-lg text-on-surface">Career Path Active</h3>
-                  <p className="text-xs text-on-surface-variant mt-2">ForgePath dynamically structures modules to bridge knowledge gaps with live metrics.</p>
-                </div>
+              <div className="relative w-full h-[450px] lg:h-[550px] rounded-2xl overflow-hidden glass-panel border border-white/10 shadow-2xl group ai-glow bg-[#05070a]">
+                <img 
+                  src={simpleRoadMapImg} 
+                  alt="Skill Roadmap Path" 
+                  className="w-full h-full object-cover rounded-2xl transition-transform duration-700 group-hover:scale-105"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#05070a]/60 via-transparent to-transparent pointer-events-none"></div>
               </div>
             </section>
 
@@ -1576,11 +1568,13 @@ export default function App() {
           {/* Interactive Navigation Sidebar */}
           <aside className={`sidebar ${menuOpen ? 'is-open' : ''}`} aria-label="Primary navigation">
             <div className="sidebar-top">
-              <div className="brand">
-                <div className="brand-mark"><Sparkles size={16} className="text-primary animate-pulse" aria-hidden="true" /></div>
+              <div className="brand flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-md shadow-indigo-500/20 border border-indigo-400/30 shrink-0">
+                  <Compass className="text-white w-4.5 h-4.5 animate-spin-slow" />
+                </div>
                 <div>
-                  <strong>ForgePath AI</strong>
-                  <span>Command Center</span>
+                  <strong className="text-white font-bold text-sm block leading-tight">ForgePath AI</strong>
+                  <span className="text-[10px] text-indigo-300/80 font-mono block">Command Center</span>
                 </div>
               </div>
               <button 
@@ -1669,11 +1663,13 @@ export default function App() {
               {/* Center workspace containing stats and 3D canvas */}
               <section className="workspace">
                 <header className="mobile-header">
-                  <div className="brand">
-                    <div className="brand-mark"><Sparkles size={16} aria-hidden="true" /></div>
+                  <div className="brand flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-md shadow-indigo-500/20 border border-indigo-400/30 shrink-0">
+                      <Compass className="text-white w-4 h-4 animate-spin-slow" />
+                    </div>
                     <div>
-                      <strong>ForgePath AI</strong>
-                      <span>Command Center</span>
+                      <strong className="text-white font-bold text-sm block leading-tight">ForgePath AI</strong>
+                      <span className="text-[10px] text-indigo-300/80 font-mono block">Command Center</span>
                     </div>
                   </div>
                   <button className="icon-button" onClick={() => setMenuOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
