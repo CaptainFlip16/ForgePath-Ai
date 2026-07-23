@@ -230,7 +230,8 @@ export default function App() {
 
     try {
       const recognition = new SpeechRecognition();
-      recognition.continuous = true;
+      const isMobile = typeof navigator !== "undefined" && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      recognition.continuous = !isMobile;
       recognition.interimResults = true;
       recognition.lang = "en-US";
 
@@ -242,12 +243,19 @@ export default function App() {
       };
 
       recognition.onresult = (event: any) => {
-        let fullTranscript = "";
+        let transcriptParts: string[] = [];
         for (let i = 0; i < event.results.length; i++) {
-          fullTranscript += event.results[i][0].transcript;
+          const text = event.results[i][0].transcript.trim();
+          if (text) {
+            // Prevent duplicated phrase entries from mobile Speech API buffer repeats
+            if (transcriptParts.length === 0 || transcriptParts[transcriptParts.length - 1].toLowerCase() !== text.toLowerCase()) {
+              transcriptParts.push(text);
+            }
+          }
         }
+        const fullTranscript = transcriptParts.join(" ");
         const prefix = baseTextRef.current ? baseTextRef.current.trim() + " " : "";
-        setUserMsgText(prefix + fullTranscript.trimStart());
+        setUserMsgText(prefix + fullTranscript);
       };
 
       recognition.onerror = (event: any) => {
