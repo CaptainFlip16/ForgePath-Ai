@@ -22,7 +22,6 @@ import {
   AlertCircle, 
   X, 
   Send, 
-  Paperclip, 
   TrendingUp, 
   Sparkles, 
   Clock, 
@@ -47,7 +46,9 @@ import {
 import { Roadmap, Module, ChatMessage } from "./types";
 import { generateFallbackRoadmap, normalizeN8nRoadmap, formatChatMessageText } from "./utils";
 import { useAuth } from "./lib/AuthContext";
+import { auth, doc, getDoc } from "./lib/firebase";
 import { AuthPage } from "./components/AuthPage";
+import { ThemeToggle } from "./components/ThemeToggle";
 import simpleRoadMapImg from "./assets/images/simple_road_pin_map_1784812763624.jpg";
 import { 
   saveOnboarding, 
@@ -62,6 +63,27 @@ import {
 
 export default function App() {
   const { user, profile, loading: authLoading, logOut, updateOnboardingStatus } = useAuth();
+
+  // Global theme state with localStorage persistence
+  const [theme, setTheme] = useState<"dark" | "light">(
+    () => (localStorage.getItem("forgepath-theme") as "dark" | "light") || "dark"
+  );
+
+  useEffect(() => {
+    localStorage.setItem("forgepath-theme", theme);
+    const root = document.documentElement;
+    if (theme === "light") {
+      root.classList.add("light");
+      root.classList.remove("dark");
+    } else {
+      root.classList.add("dark");
+      root.classList.remove("light");
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
 
   // Loading and Dynamic Skills states for Firestore sync
   const [dataLoading, setDataLoading] = useState<boolean>(false);
@@ -362,6 +384,28 @@ export default function App() {
           setMethodologies(dbOnboarding.learningStyle || []);
           setTargetBuild(dbOnboarding.desiredOutcome || "");
         }
+
+        // 3. Determine if user has completed onboarding
+        const userHasCompletedOnboarding = !!(profile?.hasCompletedOnboarding || dbRoadmap || dbOnboarding);
+
+        if (userHasCompletedOnboarding) {
+          if (!profile?.hasCompletedOnboarding) {
+            await updateOnboardingStatus(true);
+          }
+          setCurrentView((prev) => {
+            if (prev === "auth" || prev === "home" || prev.startsWith("onboarding_")) {
+              return "dashboard";
+            }
+            return prev;
+          });
+        } else {
+          setCurrentView((prev) => {
+            if (prev === "auth") {
+              return "onboarding_1";
+            }
+            return prev;
+          });
+        }
       } catch (err) {
         console.error("Error synchronizing with Firestore database:", err);
       } finally {
@@ -371,14 +415,32 @@ export default function App() {
     fetchUserData();
   }, [user]);
 
-  // Handle immediate navigation on profile load
+  // Handle Sign Out cleanly and transition immediately to home view
+  const handleSignOut = async () => {
+    setCurrentView("home");
+    setActiveTab("my-path");
+    try {
+      await logOut();
+    } catch (err) {
+      console.error("Sign out error:", err);
+    }
+  };
+
+  // Handle navigation when completing authentication
   useEffect(() => {
     if (user && profile) {
-      if ((currentView === "home" || currentView === "auth") && profile.hasCompletedOnboarding) {
+      if (currentView === "auth" && profile.hasCompletedOnboarding) {
         setCurrentView("dashboard");
       }
     }
   }, [user, profile, currentView]);
+
+  // Ensure unauthenticated users redirect back to home if on dashboard
+  useEffect(() => {
+    if (!user && !authLoading && currentView === "dashboard") {
+      setCurrentView("home");
+    }
+  }, [user, authLoading, currentView]);
 
   // Synchronize AI Mentor greeting with logged-in user's name
   useEffect(() => {
@@ -475,8 +537,7 @@ export default function App() {
     if (!user) {
       setCurrentView("auth");
     } else {
-      if (profile?.hasCompletedOnboarding) {
-        // If they already completed onboarding, restore their roadmap or build one, then go to dashboard
+      if (profile?.hasCompletedOnboarding || roadmap) {
         if (!roadmap) {
           const savedRoadmap = localStorage.getItem(`forgepath_roadmap_${user.uid}`);
           if (savedRoadmap) {
@@ -491,8 +552,7 @@ export default function App() {
               console.error(e);
             }
           }
-          // Fallback pre-generation
-          const fallbackData = generateFallbackRoadmap(profile.fullName + "'s AI Path", "Custom Application Portfolio", ["Programming Fundamentals"]);
+          const fallbackData = generateFallbackRoadmap(profile?.fullName || "Learner", "Custom Application Portfolio", ["Programming Fundamentals"]);
           setRoadmap(fallbackData);
           const inProgressMod = fallbackData.modules.find((m) => m.status === "In Progress");
           setSelectedModule(inProgressMod || fallbackData.modules[3] || fallbackData.modules[0]);
@@ -504,29 +564,43 @@ export default function App() {
     }
   };
 
-  const handleAuthSuccess = (hasCompletedOnboarding: boolean) => {
-    if (profile?.hasCompletedOnboarding || hasCompletedOnboarding) {
-      const savedRoadmap = localStorage.getItem(`forgepath_roadmap_${user?.uid}`);
-      if (savedRoadmap) {
-        try {
-          const parsed = JSON.parse(savedRoadmap);
-          setRoadmap(parsed);
-          const inProgressMod = parsed.modules.find((m: any) => m.status === "In Progress");
-          setSelectedModule(inProgressMod || parsed.modules[3] || parsed.modules[0]);
-          setCurrentView("dashboard");
-          return;
-        } catch (e) {
-          console.error(e);
+  const handleAuthSuccess = async (hasCompletedOnboardingArg: boolean) => {
+    const activeUser = auth?.currentUser || user;
+    if (!activeUser) {
+      setCurrentView("auth");
+      return;
+    }
+
+    try {
+      const dbRoadmap = await getRoadmap(activeUser.uid);
+      const dbOnboarding = await getOnboarding(activeUser.uid);
+      const isCompleted = !!(
+        profile?.hasCompletedOnboarding || 
+        hasCompletedOnboardingArg || 
+        dbRoadmap || 
+        dbOnboarding
+      );
+
+      if (isCompleted) {
+        if (dbRoadmap) {
+          setRoadmap(dbRoadmap);
+          const inProgressMod = dbRoadmap.modules.find((m: any) => m.status === "In Progress");
+          setSelectedModule(inProgressMod || dbRoadmap.modules[3] || dbRoadmap.modules[0]);
         }
+        if (!profile?.hasCompletedOnboarding) {
+          await updateOnboardingStatus(true);
+        }
+        setCurrentView("dashboard");
+      } else {
+        setCurrentView("onboarding_1");
       }
-      
-      const fallbackData = generateFallbackRoadmap(profile?.fullName || user?.displayName || user?.email?.split('@')[0] || "Learner", "Custom Application Portfolio", ["Programming Fundamentals"]);
-      setRoadmap(fallbackData);
-      const inProgressMod = fallbackData.modules.find((m) => m.status === "In Progress");
-      setSelectedModule(inProgressMod || fallbackData.modules[3] || fallbackData.modules[0]);
-      setCurrentView("dashboard");
-    } else {
-      setCurrentView("onboarding_1");
+    } catch (err) {
+      console.error("Error in handleAuthSuccess:", err);
+      if (profile?.hasCompletedOnboarding || roadmap) {
+        setCurrentView("dashboard");
+      } else {
+        setCurrentView("onboarding_1");
+      }
     }
   };
 
@@ -843,45 +917,43 @@ export default function App() {
       {currentView === "home" && (
         <div className="relative z-10 flex flex-col min-h-screen">
           {/* Main Top Header */}
-          <header className="fixed top-0 w-full z-50 bg-[#090d16]/85 backdrop-blur-md border-b border-white/10 shadow-sm">
+          <header className="fixed top-0 w-full z-50 bg-[var(--bg-header)] backdrop-blur-md border-b border-[var(--border-color)] shadow-sm">
             <div className="max-w-7xl mx-auto flex justify-between items-center px-6 h-16">
               <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView("home")}>
                 <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-indigo-400/30">
                   <Compass className="text-white w-5 h-5 animate-spin-slow" />
                 </div>
-                <span className="font-sans font-bold text-lg tracking-tight text-white">ForgePath AI</span>
+                <span className="font-sans font-bold text-lg tracking-tight text-[var(--text-main)]">ForgePath AI</span>
               </div>
               
               <div className="hidden md:flex items-center gap-8">
-                <a className="text-xs font-semibold text-indigo-400 hover:text-white transition-colors" href="#">Home Overview</a>
-                <a className="text-xs font-semibold text-slate-400 hover:text-white transition-colors" href="#how-it-works">Roadmaps</a>
-                <a className="text-xs font-semibold text-slate-400 hover:text-white transition-colors" href="#features">AI Mentor Hub</a>
+                <a className="text-xs font-semibold text-primary hover:text-[var(--text-main)] transition-colors" href="#">Home Overview</a>
+                <a className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors" href="#how-it-works">Roadmaps</a>
+                <a className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors" href="#features">AI Mentor Hub</a>
               </div>
 
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <ThemeToggle theme={theme} onToggle={toggleTheme} />
                 {user ? (
                   <>
-                    <span className="hidden sm:inline text-xs text-slate-400 font-medium">
-                      Hey, <span className="text-white font-semibold">{profile?.fullName || user.email}</span>
+                    <span className="hidden sm:inline text-xs text-[var(--text-muted)] font-medium">
+                      Hey, <span className="text-[var(--text-main)] font-semibold">{profile?.fullName || user.email}</span>
                     </span>
                     <button 
                       onClick={() => {
-                        if (profile?.hasCompletedOnboarding && roadmap) {
+                        if (profile?.hasCompletedOnboarding || roadmap) {
                           setCurrentView("dashboard");
                         } else {
                           setCurrentView("onboarding_1");
                         }
                       }}
-                      className="bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 text-white text-xs uppercase tracking-wider font-semibold py-2 px-4 rounded-lg transition-all cursor-pointer"
+                      className="bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/40 text-[var(--text-main)] text-xs uppercase tracking-wider font-semibold py-2 px-4 rounded-lg transition-all cursor-pointer"
                     >
                       Dashboard
                     </button>
                     <button 
-                      onClick={() => {
-                        logOut();
-                        setCurrentView("home");
-                      }}
-                      className="text-slate-400 hover:text-white text-xs font-semibold py-2 px-3 transition-colors cursor-pointer"
+                      onClick={handleSignOut}
+                      className="text-[var(--text-muted)] hover:text-[var(--text-main)] text-xs font-semibold py-2 px-3 transition-colors cursor-pointer"
                     >
                       Sign Out
                     </button>
@@ -890,7 +962,7 @@ export default function App() {
                   <>
                     <button 
                       onClick={() => setCurrentView("auth")}
-                      className="text-slate-300 hover:text-white text-xs font-semibold py-2 px-4 transition-colors cursor-pointer"
+                      className="text-[var(--text-muted)] hover:text-[var(--text-main)] text-xs font-semibold py-2 px-4 transition-colors cursor-pointer"
                     >
                       Sign In
                     </button>
@@ -1070,16 +1142,17 @@ export default function App() {
       {currentView === "onboarding_1" && (
         <div className="relative z-10 flex flex-col min-h-screen bg-deep-space">
           {/* Progress Header */}
-          <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-white/5 bg-[#051424]/40">
+          <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-md">
             <span className="font-bold text-lg text-primary tracking-tight">ForgePath AI</span>
             <div className="flex items-center gap-4">
-              <span className="font-mono text-[10px] text-outline uppercase tracking-widest">Step 1 of 4</span>
+              <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest">Step 1 of 4</span>
               <div className="flex gap-1.5">
                 <div className="w-6 h-1 rounded-full bg-primary shadow-sm shadow-primary/40"></div>
                 <div className="w-6 h-1 rounded-full bg-white/10"></div>
                 <div className="w-6 h-1 rounded-full bg-white/10"></div>
                 <div className="w-6 h-1 rounded-full bg-white/10"></div>
               </div>
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
             </div>
           </header>
 
@@ -1165,7 +1238,7 @@ export default function App() {
       {/* ONBOARDING FLOW: STEP 2 (What do you already know?) */}
       {currentView === "onboarding_2" && (
         <div className="relative z-10 flex flex-col min-h-screen bg-deep-space">
-          <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-white/5 bg-[#051424]/40">
+          <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-md">
             <button 
               onClick={() => setCurrentView("onboarding_1")}
               className="w-9 h-9 rounded-full glass-panel flex items-center justify-center hover:bg-white/5 transition-colors"
@@ -1173,13 +1246,14 @@ export default function App() {
               <ChevronLeft className="w-5 h-5 text-on-surface-variant" />
             </button>
             <div className="flex items-center gap-4">
-              <span className="font-mono text-[10px] text-outline uppercase tracking-widest">Step 2 of 4</span>
+              <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest">Step 2 of 4</span>
               <div className="flex gap-1.5">
                 <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
                 <div className="w-6 h-1 rounded-full bg-primary shadow-sm shadow-primary/40"></div>
                 <div className="w-6 h-1 rounded-full bg-white/10"></div>
                 <div className="w-6 h-1 rounded-full bg-white/10"></div>
               </div>
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
             </div>
           </header>
 
@@ -1266,7 +1340,7 @@ export default function App() {
       {/* ONBOARDING FLOW: STEP 3 (Configure your engine) */}
       {currentView === "onboarding_3" && (
         <div className="relative z-10 flex flex-col min-h-screen bg-deep-space">
-          <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-white/5 bg-[#051424]/40">
+          <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-md">
             <button 
               onClick={() => setCurrentView("onboarding_2")}
               className="w-9 h-9 rounded-full glass-panel flex items-center justify-center hover:bg-white/5 transition-colors"
@@ -1274,13 +1348,14 @@ export default function App() {
               <ChevronLeft className="w-5 h-5 text-on-surface-variant" />
             </button>
             <div className="flex items-center gap-4">
-              <span className="font-mono text-[10px] text-outline uppercase tracking-widest">Step 3 of 4</span>
+              <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest">Step 3 of 4</span>
               <div className="flex gap-1.5">
                 <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
                 <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
                 <div className="w-6 h-1 rounded-full bg-primary shadow-sm shadow-primary/40"></div>
                 <div className="w-6 h-1 rounded-full bg-white/10"></div>
               </div>
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
             </div>
           </header>
 
@@ -1403,7 +1478,7 @@ export default function App() {
       {/* ONBOARDING FLOW: STEP 4 (What do you want to build?) */}
       {currentView === "onboarding_4" && (
         <div className="relative z-10 flex flex-col min-h-screen bg-deep-space">
-          <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-white/5 bg-[#051424]/40">
+          <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-md">
             <button 
               onClick={() => setCurrentView("onboarding_3")}
               className="w-9 h-9 rounded-full glass-panel flex items-center justify-center hover:bg-white/5 transition-colors"
@@ -1411,13 +1486,14 @@ export default function App() {
               <ChevronLeft className="w-5 h-5 text-on-surface-variant" />
             </button>
             <div className="flex items-center gap-4">
-              <span className="font-mono text-[10px] text-outline uppercase tracking-widest">Step 4 of 4</span>
+              <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest">Step 4 of 4</span>
               <div className="flex gap-1.5">
                 <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
                 <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
                 <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
                 <div className="w-6 h-1 rounded-full bg-primary shadow-sm shadow-primary/40"></div>
               </div>
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
             </div>
           </header>
 
@@ -1588,6 +1664,15 @@ export default function App() {
 
 
       {/* VIEW: MAIN DASHBOARD & COMMAND CENTER */}
+      {currentView === "dashboard" && !roadmap && (
+        <div className="min-h-screen flex items-center justify-center bg-[#05070a] text-white">
+          <div className="flex flex-col items-center gap-3">
+            <Compass className="w-8 h-8 text-indigo-400 animate-spin-slow" />
+            <p className="text-sm font-mono text-slate-400">Loading learning environment...</p>
+          </div>
+        </div>
+      )}
+
       {currentView === "dashboard" && roadmap && (
         <div className={`app-shell ${activeTab === "my-path" ? "" : "no-details"}`}>
           
@@ -1638,35 +1723,20 @@ export default function App() {
             </nav>
             
             <div className="flex flex-col gap-4 mt-auto">
-              <div className="p-4 rounded-xl glass-panel text-center border border-white/5 bg-white/[0.01]">
-                <Sparkles className="w-5 h-5 text-primary mx-auto mb-2 animate-pulse" />
-                <h4 className="text-xs font-semibold text-white">Need more space?</h4>
-                <p className="text-[10px] text-outline mt-1 mb-3">Upgrade to premium server slots and larger models.</p>
-                <button 
-                  onClick={() => alert("Upgrading to Pro...")}
-                  className="w-full bg-secondary hover:bg-[#3cddc7] text-[#00201c] font-mono text-[10px] py-2 px-3 rounded-lg uppercase tracking-wider font-bold transition-all cursor-pointer"
-                >
-                  Upgrade to Pro
-                </button>
-              </div>
-
               {user && (
-                <div className="p-3.5 rounded-xl border border-white/5 bg-white/[0.01] flex flex-col gap-2">
+                <div className="p-3.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-hover)] flex flex-col gap-2">
                   <div className="flex items-center gap-2.5 px-0.5">
                     <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center text-primary text-xs font-bold shrink-0">
                       {profile?.fullName?.charAt(0) || user.email?.charAt(0) || "A"}
                     </div>
                     <div className="flex-grow min-w-0">
-                      <p className="text-[10px] font-bold text-white truncate leading-tight">{profile?.fullName || user?.displayName || user?.email?.split('@')[0] || "Learner"}</p>
-                      <p className="text-[8px] font-mono text-outline truncate leading-normal">{user.email}</p>
+                      <p className="text-[10px] font-bold text-[var(--text-main)] truncate leading-tight">{profile?.fullName || user?.displayName || user?.email?.split('@')[0] || "Learner"}</p>
+                      <p className="text-[8px] font-mono text-[var(--text-muted)] truncate leading-normal">{user.email}</p>
                     </div>
                   </div>
                   <button 
-                    onClick={() => {
-                      logOut();
-                      setCurrentView("home");
-                    }}
-                    className="w-full text-center font-mono text-[9px] text-red-400 hover:text-red-300 uppercase tracking-widest transition-colors py-1.5 cursor-pointer bg-red-500/5 hover:bg-red-500/10 rounded border border-red-500/10"
+                    onClick={handleSignOut}
+                    className="w-full text-center font-mono text-[9px] text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 uppercase tracking-widest transition-colors py-1.5 cursor-pointer bg-red-500/10 hover:bg-red-500/20 rounded border border-red-500/20"
                   >
                     Disconnect Session
                   </button>
@@ -1675,7 +1745,7 @@ export default function App() {
 
               <button 
                 onClick={() => setCurrentView("home")}
-                className="text-center font-mono text-[9px] text-outline uppercase tracking-widest hover:text-white transition-colors py-2 cursor-pointer"
+                className="text-center font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-widest hover:text-[var(--text-main)] transition-colors py-2 cursor-pointer"
               >
                 ← Back to Home
               </button>
@@ -1689,42 +1759,50 @@ export default function App() {
               {/* Center workspace containing stats and 3D canvas */}
               <section className="workspace">
                 <header className="mobile-header">
-                  <div className="brand flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-md shadow-indigo-500/20 border border-indigo-400/30 shrink-0">
-                      <Compass className="text-white w-4 h-4 animate-spin-slow" />
-                    </div>
-                    <div>
-                      <strong className="text-white font-bold text-sm block leading-tight">ForgePath AI</strong>
-                      <span className="text-[10px] text-indigo-300/80 font-mono block">Command Center</span>
+                  <div className="flex items-center gap-2.5">
+                    <button className="icon-button" onClick={() => setMenuOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
+                    <div className="brand flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-md shadow-indigo-500/20 border border-indigo-400/30 shrink-0">
+                        <Compass className="text-white w-4 h-4 animate-spin-slow" />
+                      </div>
+                      <div>
+                        <strong className="text-[var(--text-main)] font-bold text-sm block leading-tight">ForgePath AI</strong>
+                        <span className="text-[10px] text-indigo-400 font-mono block">Command Center</span>
+                      </div>
                     </div>
                   </div>
-                  <button className="icon-button" onClick={() => setMenuOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
+                  <ThemeToggle theme={theme} onToggle={toggleTheme} />
                 </header>
                 
                 <div className="workspace-header">
                   <div>
                     <span className="section-kicker">Your adaptive roadmap</span>
-                    <h1 className="text-white">Your path to becoming an <span className="text-primary">{roadmap.pathName || "AI Developer"}</span></h1>
-                    <p>Here's what you should focus on next.</p>
+                    <h1 className="text-[var(--text-main)]">Your path to becoming an <span className="text-primary">{roadmap.pathName || "AI Developer"}</span></h1>
+                    <p className="text-[var(--text-muted)]">Here's what you should focus on next.</p>
                   </div>
-                  <button 
-                    className="help-button" 
-                    aria-label="Open roadmap help"
-                    onClick={() => alert("ForgePath uses coordinates and 3D spatial relationships to model your professional curriculum. Hover and drag to inspect connection edges.")}
-                  >
-                    <HelpCircle size={18} /><span>How it works</span>
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <div className="hidden md:block">
+                      <ThemeToggle theme={theme} onToggle={toggleTheme} />
+                    </div>
+                    <button 
+                      className="help-button" 
+                      aria-label="Open roadmap help"
+                      onClick={() => alert("ForgePath uses coordinates and 3D spatial relationships to model your professional curriculum. Hover and drag to inspect connection edges.")}
+                    >
+                      <HelpCircle size={18} /><span>How it works</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="stats-grid">
                   <article className="stat-card">
                     <span>Overall progress</span>
-                    <strong className="text-white">{roadmap.overallProgress}%</strong>
+                    <strong className="text-[var(--text-main)]">{roadmap.overallProgress}%</strong>
                     <div className="progress-track"><span style={{ width: `${roadmap.overallProgress}%` }} /></div>
                   </article>
                   <article className="stat-card">
                     <span>Completed Nodes</span>
-                    <strong className="text-white">{roadmap.modules.filter(m => m.status === "Mastered").length} of {roadmap.modules.length}</strong>
+                    <strong className="text-[var(--text-main)]">{roadmap.modules.filter(m => m.status === "Mastered").length} of {roadmap.modules.length}</strong>
                   </article>
                   <article className="stat-card">
                     <span>Current focus</span>
@@ -1736,7 +1814,7 @@ export default function App() {
                   <div className="universe-heading">
                     <div>
                       <span className="section-kicker">Skill universe</span>
-                      <h2 className="text-white">Explore your learning path</h2>
+                      <h2 className="text-[var(--text-main)]">Explore your learning path</h2>
                     </div>
                     <span className="live-label"><i></i>Live roadmap</span>
                   </div>
@@ -1772,7 +1850,7 @@ export default function App() {
               <aside className="details-panel" aria-live="polite">
                 <div className="details-heading">
                   <span className="section-kicker">Selected skill</span>
-                  <h2 className="text-white font-bold leading-tight">{selectedSkill.name}</h2>
+                  <h2 className="text-[var(--text-main)] font-bold leading-tight">{selectedSkill.name}</h2>
                 </div>
                 
                 <section>
@@ -1804,7 +1882,7 @@ export default function App() {
                       <span className="status-badge flex items-center gap-1.5 text-primary border-primary/20 bg-primary/5">✧ Capstone Destination</span>
                     )}
                     {selectedSkill.status === 'locked' && (
-                      <span className="status-badge flex items-center gap-1.5 text-outline border-white/5 bg-white/[0.01]">🔒 Locked</span>
+                      <span className="status-badge flex items-center gap-1.5 text-[var(--text-muted)] border-[var(--border-color)] bg-[var(--bg-hover)]">🔒 Locked</span>
                     )}
                   </div>
                 </section>
@@ -1820,8 +1898,8 @@ export default function App() {
                 </section>
 
                 <article className="project-card">
-                  <span className="text-outline flex items-center gap-1.5"><BookOpen size={13} />Recommended project</span>
-                  <strong className="text-white">{selectedSkill.project.title}</strong>
+                  <span className="text-[var(--text-muted)] flex items-center gap-1.5"><BookOpen size={13} />Recommended project</span>
+                  <strong className="text-[var(--text-main)]">{selectedSkill.project.title}</strong>
                   <p>{selectedSkill.project.description}</p>
                 </article>
 
@@ -1871,26 +1949,29 @@ export default function App() {
               )}
             </>
           ) : (
-            <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#051424]">
+            <main className="flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg-app)]">
               {/* Header top bar */}
-              <header className="flex justify-between items-center px-6 md:px-10 h-16 border-b border-white/5 shrink-0 bg-[#051424]/90 backdrop-blur-md">
-                <h2 className="font-bold text-lg text-white">
-                  {activeTab === "projects" && "Portfolio Projects"}
-                  {activeTab === "ai-mentor" && "Interactive Mentor"}
-                  {activeTab === "progress" && "Progression Analytics"}
-                  {activeTab === "settings" && "Platform Calibration"}
-                </h2>
+              <header className="flex justify-between items-center px-4 sm:px-6 md:px-10 h-16 border-b border-[var(--border-color)] shrink-0 bg-[var(--bg-header)] backdrop-blur-md">
+                <div className="flex items-center gap-3">
+                  <button className="md:hidden icon-button" onClick={() => setMenuOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
+                  <h2 className="font-bold text-base sm:text-lg text-[var(--text-main)]">
+                    {activeTab === "projects" && "Portfolio Projects"}
+                    {activeTab === "ai-mentor" && "Interactive Mentor"}
+                    {activeTab === "progress" && "Progression Analytics"}
+                    {activeTab === "settings" && "Platform Calibration"}
+                  </h2>
+                </div>
 
-                <div className="flex items-center gap-4">
-                  <span className="hidden sm:inline font-mono text-[10px] text-outline uppercase tracking-wider">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <span className="hidden sm:inline font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
                     Goal: {roadmap.pathName}
                   </span>
-                  <button className="md:hidden icon-button" onClick={() => setMenuOpen(true)} aria-label="Open navigation"><Menu size={20} /></button>
+                  <ThemeToggle theme={theme} onToggle={toggleTheme} />
                 </div>
               </header>
 
               {/* Dynamic tabs controller container */}
-              <div className="flex-1 overflow-y-auto p-6 md:p-10">
+              <div className={`flex-1 min-h-0 ${activeTab === "ai-mentor" ? "p-3.5 sm:p-4 md:p-6 flex flex-col overflow-hidden" : "overflow-y-auto p-6 md:p-10"}`}>
                 
                 {/* TAB 2: PORTFOLIO PROJECTS */}
                 {activeTab === "projects" && (
@@ -1906,13 +1987,13 @@ export default function App() {
                             </div>
                             <span className="font-mono text-[9px] text-secondary bg-secondary/10 px-2 py-0.5 rounded-full uppercase">In Progress</span>
                           </div>
-                          <h3 className="text-lg font-bold text-white mb-2">Weather Intelligence Dashboard</h3>
-                          <p className="text-xs text-on-surface-variant leading-relaxed">
+                          <h3 className="text-lg font-bold text-[var(--text-main)] mb-2">Weather Intelligence Dashboard</h3>
+                          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
                             Integrate external meteorological APIs to pull, format, and render dynamic weather parameters in a glassmorphic dashboard interface.
                           </p>
                         </div>
-                        <div className="mt-6 pt-4 border-t border-white/5 flex justify-between items-center">
-                          <span className="text-[10px] text-outline font-mono">3-5 Hours • APIs</span>
+                        <div className="mt-6 pt-4 border-t border-[var(--border-color)] flex justify-between items-center">
+                          <span className="text-[10px] text-[var(--text-muted)] font-mono">3-5 Hours • APIs</span>
                           <button 
                             onClick={() => setActiveProjectFocus(true)}
                             className="bg-primary hover:bg-[#8083ff] text-on-primary font-mono text-[10px] uppercase font-bold tracking-wider py-2 px-4 rounded-lg transition-all cursor-pointer"
@@ -1926,17 +2007,17 @@ export default function App() {
                       <div className="glass-panel rounded-2xl p-6 opacity-60 flex flex-col justify-between">
                         <div>
                           <div className="flex justify-between items-start mb-4">
-                            <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center">
-                              <Lock className="text-outline w-4 h-4" />
+                            <div className="w-9 h-9 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center">
+                              <Lock className="text-[var(--text-muted)] w-4 h-4" />
                             </div>
-                            <span className="font-mono text-[9px] text-on-surface-variant/70 bg-white/5 px-2 py-0.5 rounded-full uppercase">Locked</span>
+                            <span className="font-mono text-[9px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full uppercase">Locked</span>
                           </div>
-                          <h3 className="text-lg font-bold text-white mb-2">Personal Portfolio AI</h3>
-                          <p className="text-xs text-on-surface-variant leading-relaxed">
+                          <h3 className="text-lg font-bold text-[var(--text-main)] mb-2">Personal Portfolio AI</h3>
+                          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
                             Build a customized agentic chat companion trained to represent your engineering credentials and experience.
                           </p>
                         </div>
-                        <div className="mt-6 pt-4 border-t border-white/5 text-[10px] text-outline font-mono">
+                        <div className="mt-6 pt-4 border-t border-[var(--border-color)] text-[10px] text-[var(--text-muted)] font-mono">
                           Requires: Webhooks
                         </div>
                       </div>
@@ -1945,17 +2026,17 @@ export default function App() {
                       <div className="glass-panel rounded-2xl p-6 opacity-60 flex flex-col justify-between">
                         <div>
                           <div className="flex justify-between items-start mb-4">
-                            <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center">
-                              <Lock className="text-outline w-4 h-4" />
+                            <div className="w-9 h-9 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center">
+                              <Lock className="text-[var(--text-muted)] w-4 h-4" />
                             </div>
-                            <span className="font-mono text-[9px] text-on-surface-variant/70 bg-white/5 px-2 py-0.5 rounded-full uppercase">Locked</span>
+                            <span className="font-mono text-[9px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full uppercase">Locked</span>
                           </div>
-                          <h3 className="text-lg font-bold text-white mb-2">Automated News Summarizer</h3>
-                          <p className="text-xs text-on-surface-variant leading-relaxed">
+                          <h3 className="text-lg font-bold text-[var(--text-main)] mb-2">Automated News Summarizer</h3>
+                          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
                             Connect standard RSS pipelines to Gemini streaming models to automatically organize daily tech news summaries.
                           </p>
                         </div>
-                        <div className="mt-6 pt-4 border-t border-white/5 text-[10px] text-outline font-mono">
+                        <div className="mt-6 pt-4 border-t border-[var(--border-color)] text-[10px] text-[var(--text-muted)] font-mono">
                           Requires: AI Agents
                         </div>
                       </div>
@@ -1971,10 +2052,10 @@ export default function App() {
                       </button>
 
                       {/* Breadcrumb row */}
-                      <nav className="flex items-center gap-2 text-xs text-on-surface-variant mb-2">
+                      <nav className="flex items-center gap-2 text-xs text-[var(--text-muted)] mb-2">
                         <span>Projects</span>
                         <ChevronRight className="w-3 h-3" />
-                        <span className="text-white font-semibold">Weather Intelligence Dashboard</span>
+                        <span className="text-[var(--text-main)] font-semibold">Weather Intelligence Dashboard</span>
                       </nav>
 
                       {/* Main workspace layout */}
@@ -1983,18 +2064,18 @@ export default function App() {
                         <div className="lg:col-span-8 flex flex-col gap-6">
                           
                           {/* Overview card */}
-                          <div className="glass-panel rounded-2xl p-6 border-white/10 relative overflow-hidden">
+                          <div className="glass-panel rounded-2xl p-6 border-[var(--border-color)] relative overflow-hidden">
                             <div className="absolute top-0 right-0 p-6 opacity-5">
                               <Workflow className="w-32 h-32" />
                             </div>
                             <div className="relative z-10">
                               <div className="flex flex-wrap gap-2 mb-3">
-                                <span className="px-2.5 py-1 rounded-full bg-[#122131] border border-white/5 text-[9px] text-secondary font-semibold font-mono uppercase">APIs</span>
-                                <span className="px-2.5 py-1 rounded-full bg-[#122131] border border-white/5 text-[9px] text-on-surface-variant font-semibold font-mono uppercase">Beginner</span>
-                                <span className="px-2.5 py-1 rounded-full bg-[#122131] border border-white/5 text-[9px] text-on-surface-variant font-semibold font-mono uppercase">3-5 Hours</span>
+                                <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[9px] text-secondary font-semibold font-mono uppercase">APIs</span>
+                                <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[9px] text-[var(--text-muted)] font-semibold font-mono uppercase">Beginner</span>
+                                <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[9px] text-[var(--text-muted)] font-semibold font-mono uppercase">3-5 Hours</span>
                               </div>
-                              <h1 className="text-3xl font-bold text-white mb-4">Weather Intelligence Dashboard</h1>
-                              <p className="text-sm text-on-surface-variant leading-relaxed mb-6">
+                              <h1 className="text-3xl font-bold text-[var(--text-main)] mb-4">Weather Intelligence Dashboard</h1>
+                              <p className="text-sm text-[var(--text-muted)] leading-relaxed mb-6">
                                 Create an interactive visual interface that establishes network socket connections to weather servers to digest atmospheric information. Write logic loops to gracefully parse JSON elements and present structured insights to the user.
                               </p>
                               
@@ -2030,20 +2111,20 @@ export default function App() {
                             
                             {/* Problem block */}
                             <div className="glass-panel p-6 rounded-2xl">
-                              <h3 className="text-md font-semibold text-white mb-4 flex items-center gap-2">
+                              <h3 className="text-md font-semibold text-[var(--text-main)] mb-4 flex items-center gap-2">
                                 <AlertCircle className="text-primary w-5 h-5" /> The Problem
                               </h3>
-                              <p className="text-xs text-on-surface-variant leading-relaxed">
+                              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
                                 Users need immediate access to structured meteorological data across diverse endpoints without dealing with complex developer tools, authentications, or rate limits.
                               </p>
                             </div>
 
                             {/* Skills practiced */}
                             <div className="glass-panel p-6 rounded-2xl">
-                              <h3 className="text-md font-semibold text-white mb-4 flex items-center gap-2">
+                              <h3 className="text-md font-semibold text-[var(--text-main)] mb-4 flex items-center gap-2">
                                 <Award className="text-secondary w-5 h-5" /> Key Features
                               </h3>
-                              <ul className="text-xs text-on-surface-variant space-y-2.5">
+                              <ul className="text-xs text-[var(--text-muted)] space-y-2.5">
                                 <li className="flex items-center gap-2">
                                   <Check className="w-4 h-4 text-secondary" /> Dynamic search query scanning
                                 </li>
@@ -2064,8 +2145,8 @@ export default function App() {
 
                         {/* Right column sidebar project milestones */}
                         <div className="lg:col-span-4">
-                          <div className="glass-panel rounded-2xl p-6 border-white/10">
-                            <h3 className="text-lg font-bold text-white mb-4 flex items-center justify-between">
+                          <div className="glass-panel rounded-2xl p-6 border-[var(--border-color)]">
+                            <h3 className="text-lg font-bold text-[var(--text-main)] mb-4 flex items-center justify-between">
                               Project Steps
                               <span className="text-[10px] font-mono text-secondary bg-secondary/10 px-2 py-0.5 rounded">6 Milestones</span>
                             </h3>
@@ -2080,12 +2161,12 @@ export default function App() {
                                 { step: 6, title: "Build and deploy production artifact", desc: "Prepare responsive static builds to demonstrate output." }
                               ].map((item) => (
                                 <div key={item.step} className="flex gap-4 items-start relative">
-                                  <div className="w-8 h-8 rounded-full bg-[#122131] border border-white/15 flex items-center justify-center text-xs font-mono text-primary shrink-0">
+                                  <div className="w-8 h-8 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] flex items-center justify-center text-xs font-mono text-primary shrink-0">
                                     {item.step}
                                   </div>
                                   <div>
-                                    <h4 className="text-xs font-semibold text-white">{item.title}</h4>
-                                    <p className="text-[10px] text-on-surface-variant/80 mt-1">{item.desc}</p>
+                                    <h4 className="text-xs font-semibold text-[var(--text-main)]">{item.title}</h4>
+                                    <p className="text-[10px] text-[var(--text-muted)] mt-1">{item.desc}</p>
                                   </div>
                                 </div>
                               ))}
@@ -2101,43 +2182,43 @@ export default function App() {
 
               {/* TAB 3: AI MENTOR */}
               {activeTab === "ai-mentor" && (
-                <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 h-auto lg:h-[calc(100vh-14rem)] overflow-visible lg:overflow-hidden">
+                <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-6 h-full overflow-hidden">
                   
                   {/* Left Column: Context Navigator widget (order-2 on mobile so chat comes first!) */}
-                  <aside className="order-2 lg:order-1 w-full lg:w-80 shrink-0 flex flex-col gap-6 overflow-y-auto">
-                    <div className="glass-panel rounded-2xl p-6 border-white/5 bg-[#0a0f1a]/40">
-                      <h3 className="text-md font-bold mb-4 text-white flex items-center gap-2">
+                  <aside className="order-2 lg:order-1 w-full lg:w-80 shrink-0 flex flex-col gap-6 overflow-y-auto max-h-[35vh] lg:max-h-full">
+                    <div className="glass-panel rounded-2xl p-4 sm:p-5 md:p-6 border-[var(--border-color)]">
+                      <h3 className="text-md font-bold mb-4 text-[var(--text-main)] flex items-center gap-2">
                         <Brain className="text-secondary w-5 h-5 animate-pulse" /> Active Context
                       </h3>
 
                       <div className="flex flex-col gap-5">
                         {/* Target path stats */}
                         <div>
-                          <span className="text-[10px] font-mono text-outline uppercase tracking-wider block mb-1">Target Path</span>
-                          <span className="text-sm font-semibold text-white">{roadmap.pathName}</span>
-                          <div className="w-full bg-[#122131] h-1.5 rounded-full mt-2 overflow-hidden">
+                          <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider block mb-1">Target Path</span>
+                          <span className="text-sm font-semibold text-[var(--text-main)]">{roadmap.pathName}</span>
+                          <div className="w-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] h-1.5 rounded-full mt-2 overflow-hidden">
                             <div className="bg-[#494bd6] h-full rounded-full w-[45%]"></div>
                           </div>
-                          <span className="text-[10px] text-on-surface-variant/80 mt-1 block text-right">45% Milestone Progress</span>
+                          <span className="text-[10px] text-[var(--text-muted)] mt-1 block text-right">45% Milestone Progress</span>
                         </div>
 
                         {/* active focus node */}
                         <div>
-                          <span className="text-[10px] font-mono text-outline uppercase tracking-wider block mb-1">Active Study Focus</span>
-                          <div className="bg-[#122131]/60 rounded-lg p-3 border border-white/5 flex items-center gap-2.5">
+                          <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider block mb-1">Active Study Focus</span>
+                          <div className="bg-[var(--bg-surface-subtle)] rounded-lg p-3 border border-[var(--border-color)] flex items-center gap-2.5">
                             <Cpu className="text-secondary w-4.5 h-4.5" />
-                            <span className="text-xs font-semibold text-white">APIs &amp; Connectors</span>
+                            <span className="text-xs font-semibold text-[var(--text-main)]">APIs &amp; Connectors</span>
                           </div>
                         </div>
 
                         {/* Active Recommended Project representation */}
                         <div>
-                          <span className="text-[10px] font-mono text-outline uppercase tracking-wider block mb-1.5">Project Assignment</span>
-                          <div className="bg-[#122131]/60 rounded-xl p-3 border border-white/5">
-                            <div className="w-full h-24 rounded bg-white/5 mb-3 overflow-hidden relative flex items-center justify-center border border-white/5">
-                              <Workflow className="text-on-surface-variant/40 w-10 h-10 animate-pulse" />
+                          <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider block mb-1.5">Project Assignment</span>
+                          <div className="bg-[var(--bg-surface-subtle)] rounded-xl p-3 border border-[var(--border-color)]">
+                            <div className="w-full h-20 sm:h-24 rounded bg-[var(--bg-hover)] mb-3 overflow-hidden relative flex items-center justify-center border border-[var(--border-color)]">
+                              <Workflow className="text-[var(--text-muted)] w-8 h-8 sm:w-10 sm:h-10 animate-pulse" />
                             </div>
-                            <h4 className="text-xs font-bold text-white leading-tight">Weather Intelligence Dashboard</h4>
+                            <h4 className="text-xs font-bold text-[var(--text-main)] leading-tight">Weather Intelligence Dashboard</h4>
                             <span className="text-[10px] text-secondary font-mono mt-1 block">Status: IN PROGRESS</span>
                           </div>
                         </div>
@@ -2146,15 +2227,15 @@ export default function App() {
                   </aside>
 
                   {/* Right Column: Complete Chat container */}
-                  <section className="order-1 lg:order-2 flex-1 glass-panel rounded-2xl flex flex-col overflow-hidden relative border-white/10 shadow-2xl h-[580px] sm:h-[620px] lg:h-full min-h-[480px]">
+                  <section className="order-1 lg:order-2 flex-1 min-h-0 glass-panel rounded-2xl flex flex-col overflow-hidden relative border-[var(--border-color)] shadow-2xl h-[calc(100vh-8.5rem)] min-h-[480px] lg:h-full">
                     {/* Chat Header */}
-                    <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-[#010f1f]">
+                    <div className="px-4 sm:px-6 py-3.5 border-b border-[var(--border-color)] flex items-center justify-between bg-[var(--bg-header)] shrink-0">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-secondary/15 flex items-center justify-center border border-secondary/20 animate-pulse">
                           <Brain className="text-secondary w-4.5 h-4.5" />
                         </div>
                         <div>
-                          <span className="text-xs font-bold text-white block">Forge Mentor</span>
+                          <span className="text-xs font-bold text-[var(--text-main)] block">Forge Mentor</span>
                           <span className="text-[9px] font-mono text-[#10b981] flex items-center gap-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-ping"></span> Online
                           </span>
@@ -2163,21 +2244,25 @@ export default function App() {
                     </div>
 
                     {/* Messages history viewport */}
-                    <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+                    <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-5 md:p-6 flex flex-col gap-4 md:gap-6">
                       {chatMessages.map((msg, idx) => {
                         const isAI = msg.role === "model";
                         return (
-                          <div key={idx} className={`flex gap-4 max-w-[85%] ${isAI ? "" : "ml-auto flex-row-reverse"}`}>
+                          <div key={idx} className={`flex gap-2.5 sm:gap-3.5 md:gap-4 w-full ${
+                            isAI 
+                              ? "max-w-[95%] sm:max-w-[90%] md:max-w-[85%]" 
+                              : "max-w-[90%] sm:max-w-[85%] md:max-w-[80%] ml-auto flex-row-reverse"
+                          }`}>
                             {/* Avatar Icon */}
-                            <div className={`w-9 h-9 rounded-lg shrink-0 flex items-center justify-center border ${
-                              isAI ? "border-secondary/20 bg-[#122131]/80 text-secondary" : "border-primary/20 bg-primary/10 text-primary"
+                            <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg shrink-0 flex items-center justify-center border ${
+                              isAI ? "border-secondary/20 bg-[var(--bg-surface-subtle)] text-secondary" : "border-primary/20 bg-primary/10 text-primary"
                             }`}>
-                              {isAI ? <Brain className="w-5 h-5" /> : <Code className="w-5 h-5" />}
+                              {isAI ? <Brain className="w-4.5 h-4.5 sm:w-5 sm:h-5" /> : <Code className="w-4.5 h-4.5 sm:w-5 sm:h-5" />}
                             </div>
 
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center justify-between gap-2 min-w-0">
-                                <span className="text-[10px] font-mono text-outline">
+                            <div className={`flex flex-col gap-1 ${isAI ? "flex-1 min-w-0" : "items-end"}`}>
+                              <div className={`flex items-center gap-2 ${isAI ? "justify-between min-w-0 w-full" : "justify-end"}`}>
+                                <span className="text-[10px] font-mono text-[var(--text-muted)] truncate">
                                   {isAI ? "Forge Mentor" : `${profile?.fullName || user?.displayName || user?.email?.split('@')[0] || "You"} (You)`}
                                 </span>
                                 {isAI && (
@@ -2189,7 +2274,7 @@ export default function App() {
                                     className={`flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded-md transition-all cursor-pointer ${
                                       speakingMsgIndex === idx
                                         ? "bg-secondary/20 text-secondary border border-secondary/40 animate-pulse shadow-[0_0_10px_rgba(3,198,178,0.2)]"
-                                        : "text-on-surface-variant/70 hover:text-white hover:bg-white/5 border border-transparent"
+                                        : "text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] border border-transparent"
                                     }`}
                                   >
                                     {speakingMsgIndex === idx ? (
@@ -2206,17 +2291,17 @@ export default function App() {
                                   </button>
                                 )}
                               </div>
-                              <div className={`rounded-2xl p-4 text-xs leading-relaxed shadow-sm relative overflow-hidden border ${
+                              <div className={`rounded-2xl p-3 sm:p-4 text-xs leading-relaxed shadow-sm relative overflow-hidden border ${
                                 isAI 
-                                  ? "bg-[#010f1f]/60 border-white/5 rounded-tl-sm text-on-surface" 
-                                  : "bg-primary/5 border-primary/20 rounded-tr-sm text-white"
+                                  ? "w-full min-w-0 bg-[var(--bg-surface-subtle)] border-[var(--border-color)] rounded-tl-sm text-[var(--text-main)]" 
+                                  : "w-fit max-w-full bg-primary/10 border-primary/30 rounded-tr-sm text-[var(--text-main)]"
                               }`}>
                                 {isAI ? (
-                                  <div className="markdown-body space-y-2 text-xs text-on-surface [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_code]:bg-white/10 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:font-mono [&_pre]:bg-black/60 [&_pre]:p-3 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:my-2 [&_h1]:text-sm [&_h1]:font-bold [&_h2]:text-xs [&_h2]:font-bold [&_h3]:text-xs [&_h3]:font-semibold [&_a]:text-secondary [&_a]:underline">
+                                  <div className="markdown-body space-y-2 text-xs text-[var(--text-main)] w-full min-w-0 break-words [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:list-disc [&_ul]:ml-4 [&_ol]:list-decimal [&_ol]:ml-4 [&_code]:bg-[var(--bg-hover)] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:font-mono [&_pre]:bg-black/60 [&_pre]:text-white [&_pre]:p-3 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre]:my-2 [&_h1]:text-sm [&_h1]:font-bold [&_h2]:text-xs [&_h2]:font-bold [&_h3]:text-xs [&_h3]:font-semibold [&_a]:text-secondary [&_a]:underline">
                                     <ReactMarkdown>{formatChatMessageText(msg.text)}</ReactMarkdown>
                                   </div>
                                 ) : (
-                                  <p className="whitespace-pre-wrap">{msg.text}</p>
+                                  <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                                 )}
                               </div>
                             </div>
@@ -2225,13 +2310,13 @@ export default function App() {
                       })}
 
                       {isChatLoading && (
-                        <div className="flex gap-4 max-w-[80%]">
-                          <div className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center border border-secondary/20 bg-[#122131]/80 text-secondary animate-pulse">
-                            <Brain className="w-5 h-5" />
+                        <div className="flex gap-2.5 sm:gap-3.5 md:gap-4 w-full max-w-[95%] sm:max-w-[90%] md:max-w-[85%]">
+                          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg shrink-0 flex items-center justify-center border border-secondary/20 bg-[var(--bg-surface-subtle)] text-secondary animate-pulse">
+                            <Brain className="w-4.5 h-4.5 sm:w-5 sm:h-5" />
                           </div>
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[10px] font-mono text-outline">Forge Mentor</span>
-                            <div className="rounded-2xl p-4 bg-[#010f1f]/60 border border-white/5 rounded-tl-sm text-on-surface">
+                          <div className="flex-1 min-w-0 flex flex-col gap-1">
+                            <span className="text-[10px] font-mono text-[var(--text-muted)]">Forge Mentor</span>
+                            <div className="rounded-2xl p-3 sm:p-4 bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] rounded-tl-sm text-[var(--text-main)] w-fit">
                               <div className="flex gap-1 items-center py-1">
                                 <div className="w-2 h-2 bg-secondary rounded-full animate-bounce"></div>
                                 <div className="w-2 h-2 bg-secondary rounded-full animate-bounce [animation-delay:0.2s]"></div>
@@ -2246,14 +2331,14 @@ export default function App() {
                     </div>
 
                     {/* Chat bottom action input dock */}
-                    <div className="p-4 bg-[#010f1f]/90 border-t border-white/5 backdrop-blur-md shrink-0 flex flex-col gap-3">
+                    <div className="p-3 sm:p-4 bg-[var(--bg-header)] border-t border-[var(--border-color)] backdrop-blur-md shrink-0 flex flex-col gap-2.5 sm:gap-3">
                       {/* suggested suggestion chips */}
                       <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar select-none">
                         {chatSuggestChips.map((chip, i) => (
                           <button
                             key={i}
                             onClick={() => handleSendChatMessage(chip)}
-                            className="flex-shrink-0 px-3.5 py-1.5 rounded-full border border-white/10 bg-[#122131]/40 hover:bg-[#1c2b3c]/80 hover:border-white/30 text-xs text-on-surface-variant hover:text-on-surface transition-all whitespace-nowrap cursor-pointer"
+                            className="flex-shrink-0 px-3.5 py-1.5 rounded-full border border-[var(--border-color)] bg-[var(--bg-hover)] hover:bg-[var(--bg-surface-subtle)] text-xs text-[var(--text-muted)] hover:text-[var(--text-main)] transition-all whitespace-nowrap cursor-pointer"
                           >
                             {chip}
                           </button>
@@ -2263,12 +2348,12 @@ export default function App() {
                       {/* Voice listening status indicator bar */}
                       {isListening && (
                         <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-[11px] font-mono animate-pulse">
-                          <div className="flex items-center gap-2">
-                            <span className="relative flex h-2 w-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="relative flex h-2 w-2 shrink-0">
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                               <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                             </span>
-                            <span>Listening... Speak into your microphone. Transcribing live into text input below.</span>
+                            <span className="truncate">Listening... Speak into your microphone.</span>
                           </div>
                           <button 
                             type="button"
@@ -2301,18 +2386,18 @@ export default function App() {
                       <div className="relative group">
                         <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-secondary/10 rounded-xl blur-xs opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
                         
-                        <div className={`relative flex items-center gap-2 bg-[#05070a] border rounded-xl p-2 transition-all ${
+                        <div className={`relative flex items-center gap-2 bg-[var(--bg-input)] border rounded-xl p-1.5 sm:p-2 transition-all ${
                           isListening 
                             ? "border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]" 
-                            : "border-white/10 focus-within:border-secondary focus-within:shadow-[0_0_15px_rgba(3,198,178,0.15)]"
+                            : "border-[var(--border-color)] focus-within:border-secondary focus-within:shadow-[0_0_15px_rgba(3,198,178,0.15)]"
                         }`}>
-                          <button 
-                            type="button"
-                            className="p-2 text-on-surface-variant hover:text-white rounded-lg cursor-pointer"
-                            aria-label="Attach file"
+                          <div 
+                            className="p-2 text-secondary/80 rounded-lg flex items-center justify-center shrink-0"
+                            aria-hidden="true"
+                            title="Forge Mentor Conversation"
                           >
-                            <Paperclip className="w-4 h-4" />
-                          </button>
+                            <MessageSquare className="w-4 h-4 text-secondary" />
+                          </div>
                           
                           <input 
                             type="text"
@@ -2324,7 +2409,7 @@ export default function App() {
                               }
                             }}
                             placeholder={isListening ? "Listening... Transcribing your question..." : "Message Forge Mentor..."}
-                            className="w-full bg-transparent border-none text-xs text-on-surface placeholder:text-on-surface-variant/40 focus:ring-0 outline-none py-2 px-2"
+                            className="w-full bg-transparent border-none text-xs text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:ring-0 outline-none py-2 px-1 sm:px-2"
                           />
 
                           {/* Voice input microphone button */}
@@ -2336,7 +2421,7 @@ export default function App() {
                             className={`p-2 rounded-lg flex items-center justify-center shrink-0 cursor-pointer transition-all ${
                               isListening 
                                 ? "bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.3)] hover:bg-red-500/30" 
-                                : "text-on-surface-variant hover:text-white hover:bg-white/5"
+                                : "text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
                             }`}
                           >
                             {isListening ? <MicOff className="w-4 h-4 text-red-400" /> : <Mic className="w-4 h-4" />}
@@ -2371,7 +2456,7 @@ export default function App() {
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
                     {/* Progression tracking bento card */}
                     <div className="lg:col-span-8 glass-panel rounded-2xl p-6 flex flex-col gap-6">
-                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                      <h3 className="text-lg font-bold text-[var(--text-main)] flex items-center gap-2">
                         <TrendingUp className="text-primary w-5 h-5" /> Detailed Completion Rates
                       </h3>
 
@@ -2386,10 +2471,10 @@ export default function App() {
                           return (
                             <div key={idx} className="flex flex-col gap-1.5">
                               <div className="flex justify-between items-center text-xs">
-                                <span className="font-semibold text-white">{m.title}</span>
-                                <span className="font-mono text-outline">{pct}% • {m.status}</span>
+                                <span className="font-semibold text-[var(--text-main)]">{m.title}</span>
+                                <span className="font-mono text-[var(--text-muted)]">{pct}% • {m.status}</span>
                               </div>
-                              <div className="w-full bg-[#122131] h-2 rounded-full overflow-hidden">
+                              <div className="w-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] h-2 rounded-full overflow-hidden">
                                 <div 
                                   className={`h-full rounded-full transition-all duration-1000 ${
                                     m.status === "Mastered" ? "bg-[#10b981]" : "bg-primary"
@@ -2405,15 +2490,15 @@ export default function App() {
 
                     {/* Right column weekly activity graph */}
                     <div className="lg:col-span-4 glass-panel rounded-2xl p-6">
-                      <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                      <h3 className="text-lg font-bold text-[var(--text-main)] mb-4 flex items-center gap-2">
                         <Flame className="text-secondary w-5 h-5" /> Study Momentum
                       </h3>
 
                       {/* Fake weekly activity bar chart */}
-                      <div className="h-44 w-full flex items-end gap-1.5 mb-4 relative pt-6 border-b border-white/5">
-                        <div className="absolute inset-0 border-b border-white/5 z-0" style={{ top: "25%" }}></div>
-                        <div className="absolute inset-0 border-b border-white/5 z-0" style={{ top: "50%" }}></div>
-                        <div className="absolute inset-0 border-b border-white/5 z-0" style={{ top: "75%" }}></div>
+                      <div className="h-44 w-full flex items-end gap-1.5 mb-4 relative pt-6 border-b border-[var(--border-color)]">
+                        <div className="absolute inset-0 border-b border-[var(--border-color)] z-0" style={{ top: "25%" }}></div>
+                        <div className="absolute inset-0 border-b border-[var(--border-color)] z-0" style={{ top: "50%" }}></div>
+                        <div className="absolute inset-0 border-b border-[var(--border-color)] z-0" style={{ top: "75%" }}></div>
 
                         <div className="flex-1 bg-primary/20 rounded-t-sm z-10" style={{ height: "20%" }}></div>
                         <div className="flex-1 bg-primary/20 rounded-t-sm z-10" style={{ height: "40%" }}></div>
@@ -2423,7 +2508,7 @@ export default function App() {
                         <div className="flex-1 bg-[#10b981]/40 rounded-t-sm z-10" style={{ height: "45%" }}></div>
                       </div>
 
-                      <div className="flex justify-between text-[10px] font-mono text-outline">
+                      <div className="flex justify-between text-[10px] font-mono text-[var(--text-muted)]">
                         <span>Mon</span>
                         <span>Wed</span>
                         <span>Fri</span>
@@ -2442,44 +2527,44 @@ export default function App() {
                   {/* Account Details Panel */}
                   {user && (
                     <div className="glass-panel rounded-2xl p-6 md:p-8 flex flex-col gap-6">
-                      <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                      <h3 className="text-lg font-bold text-[var(--text-main)] flex items-center gap-2">
                         <User className="text-secondary w-5 h-5" /> Account Profile Details
                       </h3>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
                         <div className="flex flex-col gap-1.5">
-                          <span className="font-mono text-[9px] text-outline uppercase tracking-wider">Full Developer Name</span>
-                          <span className="font-semibold text-white bg-[#0F172A] border border-white/5 rounded-xl px-4 py-3">
+                          <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-wider">Full Developer Name</span>
+                          <span className="font-semibold text-[var(--text-main)] bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] rounded-xl px-4 py-3">
                             {profile?.fullName || user?.displayName || user?.email?.split('@')[0] || "Learner"}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1.5">
-                          <span className="font-mono text-[9px] text-outline uppercase tracking-wider">Registered Email</span>
-                          <span className="font-semibold text-white bg-[#0F172A] border border-white/5 rounded-xl px-4 py-3">
+                          <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-wider">Registered Email</span>
+                          <span className="font-semibold text-[var(--text-main)] bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] rounded-xl px-4 py-3">
                             {user.email}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1.5">
-                          <span className="font-mono text-[9px] text-outline uppercase tracking-wider">Workspace Secure UID</span>
-                          <span className="font-mono text-outline bg-[#0F172A] border border-white/5 rounded-xl px-4 py-3 truncate">
+                          <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-wider">Workspace Secure UID</span>
+                          <span className="font-mono text-[var(--text-muted)] bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] rounded-xl px-4 py-3 truncate">
                             {user.uid}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1.5">
-                          <span className="font-mono text-[9px] text-outline uppercase tracking-wider">Authentication Provider</span>
-                          <span className="font-semibold text-primary bg-[#0F172A] border border-white/5 rounded-xl px-4 py-3 capitalize">
+                          <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-wider">Authentication Provider</span>
+                          <span className="font-semibold text-primary bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] rounded-xl px-4 py-3 capitalize">
                             {user.providerData?.[0]?.providerId || "Email / Password"}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1.5">
-                          <span className="font-mono text-[9px] text-outline uppercase tracking-wider">Workspace Initialized At</span>
-                          <span className="font-semibold text-on-surface-variant bg-[#0F172A] border border-white/5 rounded-xl px-4 py-3">
+                          <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-wider">Workspace Initialized At</span>
+                          <span className="font-semibold text-[var(--text-main)] bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] rounded-xl px-4 py-3">
                             {profile?.createdAt ? new Date(profile.createdAt).toLocaleString() : new Date().toLocaleString()}
                           </span>
                         </div>
                         <div className="flex flex-col gap-1.5">
-                          <span className="font-mono text-[9px] text-outline uppercase tracking-wider">Last Secure Access Audit</span>
-                          <span className="font-semibold text-on-surface-variant bg-[#0F172A] border border-white/5 rounded-xl px-4 py-3">
+                          <span className="font-mono text-[9px] text-[var(--text-muted)] uppercase tracking-wider">Last Secure Access Audit</span>
+                          <span className="font-semibold text-[var(--text-main)] bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] rounded-xl px-4 py-3">
                             {profile?.lastLoginAt ? new Date(profile.lastLoginAt).toLocaleString() : new Date().toLocaleString()}
                           </span>
                         </div>
@@ -2489,27 +2574,27 @@ export default function App() {
 
                   {/* Calibration Panel */}
                   <div className="glass-panel rounded-2xl p-6 md:p-8 flex flex-col gap-6">
-                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-[var(--text-main)] flex items-center gap-2">
                       <Settings className="text-primary w-5.5 h-5.5" /> Platform Calibration Settings
                     </h3>
 
                     <div className="space-y-6">
                       <div>
-                        <label className="text-xs font-mono text-outline uppercase tracking-wider block mb-2">Target Stack &amp; Goal</label>
+                        <label className="text-xs font-mono text-[var(--text-muted)] uppercase tracking-wider block mb-2">Target Stack &amp; Goal</label>
                         <input 
                           type="text" 
                           value={roadmap.pathName}
                           onChange={(e) => setRoadmap((prev) => prev ? { ...prev, pathName: e.target.value } : null)}
-                          className="w-full bg-[#0F172A] border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-primary"
+                          className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl px-4 py-3 text-xs text-[var(--text-main)] focus:outline-none focus:border-primary"
                         />
                       </div>
 
                       <div>
-                        <label className="text-xs font-mono text-outline uppercase tracking-wider block mb-2">Configure Time commitment</label>
+                        <label className="text-xs font-mono text-[var(--text-muted)] uppercase tracking-wider block mb-2">Configure Time commitment</label>
                         <select 
                           value={weeklyHours}
                           onChange={(e) => setWeeklyHours(e.target.value)}
-                          className="w-full bg-[#0F172A] border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-primary"
+                          className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl px-4 py-3 text-xs text-[var(--text-main)] focus:outline-none focus:border-primary"
                         >
                           <option value="1-5 hours">1-5 hours (Light exploration)</option>
                           <option value="5-10 hours">5-10 hours (Steady progress)</option>
@@ -2553,17 +2638,14 @@ export default function App() {
                               setCurrentView("onboarding_1");
                             }
                           }}
-                          className="border border-[#f43f5e]/30 hover:bg-[#f43f5e]/5 text-[#f43f5e] font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
+                          className="border border-[#f43f5e]/40 hover:bg-[#f43f5e]/10 text-rose-600 dark:text-[#f43f5e] font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
                         >
                           Reset &amp; Build New Path
                         </button>
                         {user && (
                           <button 
-                            onClick={() => {
-                              logOut();
-                              setCurrentView("home");
-                            }}
-                            className="ml-auto bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-200 font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
+                            onClick={handleSignOut}
+                            className="ml-auto bg-red-500/10 hover:bg-red-500/20 border border-red-500/40 dark:border-red-500/20 text-red-600 dark:text-red-200 font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
                           >
                             Sign Out Account
                           </button>
@@ -2576,9 +2658,10 @@ export default function App() {
 
             </div>
           </main>
-          )}
-        </div>
-      )}
+        )
+      }
+    </div>
+  )}
 
       {/* VIEW: SECURE CREDENTIALS AND ACCESS GATE */}
       {currentView === "auth" && (

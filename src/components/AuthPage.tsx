@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useAuth } from "../lib/AuthContext";
+import { ThemeToggle } from "./ThemeToggle";
 import { 
   Compass, 
   Lock, 
@@ -18,9 +19,11 @@ import {
 interface AuthPageProps {
   onBackToHome: () => void;
   onAuthSuccess: (hasCompletedOnboarding: boolean) => void;
+  theme?: "dark" | "light";
+  onToggleTheme?: () => void;
 }
 
-export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
+export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggleTheme }: AuthPageProps) {
   const { 
     signInWithEmail, 
     signUpWithEmail, 
@@ -108,12 +111,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
     setLoading(true);
     try {
       await signInWithGoogle();
-      if (isSignUp) {
-        setSuccess("Google account registered successfully! Please sign in.");
-        setIsSignUp(false); // Take to sign-in page immediately!
-      } else {
-        onAuthSuccess(false); // Go to homepage/dashboard immediately!
-      }
+      onAuthSuccess(false); // Direct user immediately on Google Auth success
     } catch (err: any) {
       console.error("Google Auth error:", err);
       let errMsg = err.message || "Google authentication failed.";
@@ -121,7 +119,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
         setIsUnauthorizedDomain(true);
         errMsg = "Unauthorized Domain: This hosting domain is not authorized in your Firebase console.";
       } else if (err.code === "auth/popup-closed-by-user" || err.message?.includes("popup-closed-by-user") || err.code === "auth/cancelled-popup-request" || err.message?.includes("cancelled-popup-request") || err.code === "auth/popup-blocked") {
-        errMsg = "Google sign-in popup closed or was blocked by browser iframe security. Please use Email & Password Sign In below or click 'Open App in New Tab' to sign in with Google in a standalone tab.";
+        errMsg = "Google sign-in popup was closed or blocked. Redirecting to Google Sign-In...";
       }
       setError(errMsg);
     } finally {
@@ -131,6 +129,11 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
 
   return (
     <div className="relative z-10 flex-grow flex items-center justify-center px-4 py-16 md:py-24">
+      {onToggleTheme && (
+        <div className="absolute top-6 right-6 z-20">
+          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+        </div>
+      )}
       <div className="w-full max-w-md">
         
         {/* Logo and Greeting */}
@@ -139,12 +142,12 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-indigo-400/30">
               <Compass className="text-white w-5 h-5 animate-spin-slow" />
             </div>
-            <span className="font-sans font-bold text-xl tracking-tight text-white">ForgePath AI</span>
+            <span className="font-sans font-bold text-xl tracking-tight text-[var(--text-main)]">ForgePath AI</span>
           </div>
-          <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-white mt-1">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-[var(--text-main)] mt-1">
             {isSignUp ? "Forge Your Account" : "Access Your Workspace"}
           </h2>
-          <p className="text-xs text-slate-400 mt-2 max-w-sm mx-auto">
+          <p className="text-xs text-[var(--text-muted)] mt-2 max-w-sm mx-auto">
             {isSignUp 
               ? "Synthesize structural career paths and build production-grade portfolios with active AI mentoring."
               : "Welcome back. Initialize your active learning pipelines and continue your curriculum milestones."
@@ -153,7 +156,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
         </div>
 
         {/* Authentication Card */}
-        <div className="glass-panel border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden bg-[#0c111d]/90">
+        <div className="glass-panel border-[var(--border-color)] rounded-2xl p-6 md:p-8 shadow-2xl relative overflow-hidden bg-[var(--bg-surface)]">
           <div className="absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500/50 to-transparent"></div>
           
           {/* Error Banner */}
@@ -240,7 +243,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Alex Smith"
                     disabled={loading}
-                    className="w-full bg-[#070b13] border border-white/5 rounded-xl py-3 pl-10 pr-4 text-sm text-white placeholder-on-surface-variant/30 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
+                    className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-4 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)]/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
                   />
                 </div>
               </div>
@@ -257,7 +260,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="alex@forgepath.ai"
                   disabled={loading}
-                  className="w-full bg-[#070b13] border border-white/5 rounded-xl py-3 pl-10 pr-4 text-sm text-white placeholder-on-surface-variant/30 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
+                  className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-4 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)]/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
                 />
               </div>
             </div>
@@ -273,12 +276,12 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   disabled={loading}
-                  className="w-full bg-[#070b13] border border-white/5 rounded-xl py-3 pl-10 pr-10 text-sm text-white placeholder-on-surface-variant/30 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
+                  className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-10 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)]/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant/40 hover:text-white transition-colors cursor-pointer"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant/40 hover:text-[var(--text-main)] transition-colors cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -297,7 +300,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"
                     disabled={loading}
-                    className="w-full bg-[#070b13] border border-white/5 rounded-xl py-3 pl-10 pr-4 text-sm text-white placeholder-on-surface-variant/30 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
+                    className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-4 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)]/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
                   />
                 </div>
               </div>
@@ -332,7 +335,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
             type="button"
             onClick={handleGoogleAuth}
             disabled={loading}
-            className="w-full bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 hover:border-white/10 text-white rounded-xl py-3 text-xs font-semibold flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+            className="w-full bg-[var(--bg-hover)] hover:bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[var(--text-main)] rounded-xl py-3 text-xs font-semibold flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
           >
             {/* Real SVG Google Icon */}
             <svg className="w-4.5 h-4.5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -352,7 +355,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
                 setError(null);
                 setSuccess(null);
               }}
-              className="text-xs text-on-surface-variant hover:text-white font-medium transition-colors cursor-pointer flex items-center gap-1.5 mx-auto"
+              className="text-xs text-[var(--text-muted)] hover:text-[var(--text-main)] font-medium transition-colors cursor-pointer flex items-center gap-1.5 mx-auto"
             >
               {isSignUp ? (
                 <>
@@ -372,7 +375,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess }: AuthPageProps) {
         <div className="text-center mt-6">
           <button 
             onClick={onBackToHome}
-            className="text-on-surface-variant/60 hover:text-on-surface text-xs font-bold tracking-wider uppercase inline-flex items-center gap-1 cursor-pointer transition-colors"
+            className="text-[var(--text-muted)] hover:text-[var(--text-main)] text-xs font-bold tracking-wider uppercase inline-flex items-center gap-1 cursor-pointer transition-colors"
           >
             ← Return to Landing Overview
           </button>

@@ -7,6 +7,8 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   onAuthStateChanged,
   doc,
   setDoc,
@@ -57,6 +59,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Process Google redirect result if coming back from redirect flow
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (result && result.user) {
+          const firebaseUser = result.user;
+          const userDocRef = doc(db, "users", firebaseUser.uid);
+          let docSnap;
+          try {
+            docSnap = await getDoc(userDocRef);
+          } catch (getErr) {
+            console.warn("[AuthContext] Firestore getDoc failed after redirect:", getErr);
+          }
+          if (docSnap && docSnap.exists()) {
+            const profileData = docSnap.data() as UserProfile;
+            setProfile({ ...profileData, lastLoginAt: new Date() });
+          } else {
+            const newProfile: UserProfile = {
+              uid: firebaseUser.uid,
+              fullName: firebaseUser.displayName || "Google Developer",
+              email: firebaseUser.email || "",
+              createdAt: new Date(),
+              lastLoginAt: new Date(),
+              hasCompletedOnboarding: false
+            };
+            try {
+              await setDoc(userDocRef, { ...newProfile, createdAt: serverTimestamp(), lastLoginAt: serverTimestamp() });
+            } catch (setErr) {
+              console.warn("[AuthContext] Failed to save Google profile after redirect:", setErr);
+            }
+            setProfile(newProfile);
+          }
+        }
+      })
+      .catch((redirectErr) => {
+        console.warn("[AuthContext] Redirect result processing:", redirectErr);
+      });
+
     // Subscribe to Firebase auth changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
       if (firebaseUser) {
@@ -72,7 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const savedRoadmap = localStorage.getItem(`forgepath_roadmap_${firebaseUser.uid}`);
             const fallbackProfile: UserProfile = {
               uid: firebaseUser.uid,
-              fullName: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Alex",
+              fullName: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Learner",
               email: firebaseUser.email || "",
               createdAt: new Date(),
               lastLoginAt: new Date(),
@@ -103,7 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             // Document does not exist yet (e.g. initial Google sign up)
             const newProfile: UserProfile = {
               uid: firebaseUser.uid,
-              fullName: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Alex",
+              fullName: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Learner",
               email: firebaseUser.email || "",
               createdAt: new Date(),
               lastLoginAt: new Date(),
@@ -125,7 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const savedRoadmap = localStorage.getItem(`forgepath_roadmap_${firebaseUser.uid}`);
           const fallbackProfile: UserProfile = {
             uid: firebaseUser.uid,
-            fullName: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Alex",
+            fullName: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Learner",
             email: firebaseUser.email || "",
             createdAt: new Date(),
             lastLoginAt: new Date(),
@@ -196,50 +235,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setLoading(true);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const firebaseUser = result.user;
+      const isMobile = typeof navigator !== "undefined" && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       
-      const userDocRef = doc(db, "users", firebaseUser.uid);
-      
-      let docSnap;
-      try {
-        docSnap = await getDoc(userDocRef);
-      } catch (getErr) {
-        console.warn("[AuthContext] Firestore getDoc failed during Google Sign-In, utilizing local fallback:", getErr);
+      if (isMobile) {
+        await signInWithRedirect(auth, googleProvider);
+        return;
       }
 
-      if (docSnap && docSnap.exists()) {
-        const profileData = docSnap.data() as UserProfile;
+      try {
+        const result = await signInWithPopup(auth, googleProvider);
+        const firebaseUser = result.user;
+        
+        const userDocRef = doc(db, "users", firebaseUser.uid);
+        let docSnap;
         try {
-          await updateDoc(userDocRef, {
-            lastLoginAt: serverTimestamp()
-          });
-        } catch (updateErr) {
-          console.warn("[AuthContext] Failed to update login timestamp (possibly offline):", updateErr);
+          docSnap = await getDoc(userDocRef);
+        } catch (getErr) {
+          console.warn("[AuthContext] Firestore getDoc failed during Google Sign-In:", getErr);
         }
-        setProfile({
-          ...profileData,
-          lastLoginAt: new Date()
-        });
-      } else {
-        const newProfile: UserProfile = {
-          uid: firebaseUser.uid,
-          fullName: firebaseUser.displayName || "Google Developer",
-          email: firebaseUser.email || "",
-          createdAt: new Date(),
-          lastLoginAt: new Date(),
-          hasCompletedOnboarding: false
-        };
-        try {
-          await setDoc(userDocRef, {
-            ...newProfile,
-            createdAt: serverTimestamp(),
-            lastLoginAt: serverTimestamp()
-          });
-        } catch (setErr) {
-          console.warn("[AuthContext] Failed to create Google user profile (possibly offline):", setErr);
+
+        if (docSnap && docSnap.exists()) {
+          const profileData = docSnap.data() as UserProfile;
+          try {
+            await updateDoc(userDocRef, { lastLoginAt: serverTimestamp() });
+          } catch (e) {}
+          setProfile({ ...profileData, lastLoginAt: new Date() });
+        } else {
+          const newProfile: UserProfile = {
+            uid: firebaseUser.uid,
+            fullName: firebaseUser.displayName || "Google Developer",
+            email: firebaseUser.email || "",
+            createdAt: new Date(),
+            lastLoginAt: new Date(),
+            hasCompletedOnboarding: false
+          };
+          try {
+            await setDoc(userDocRef, { ...newProfile, createdAt: serverTimestamp(), lastLoginAt: serverTimestamp() });
+          } catch (e) {}
+          setProfile(newProfile);
         }
-        setProfile(newProfile);
+      } catch (popupErr: any) {
+        if (
+          popupErr.code === "auth/popup-blocked" ||
+          popupErr.code === "auth/popup-closed-by-user" ||
+          popupErr.code === "auth/cancelled-popup-request" ||
+          popupErr.message?.includes("popup")
+        ) {
+          console.warn("[AuthContext] Popup closed/blocked, falling back to redirect auth:", popupErr);
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        }
+        throw popupErr;
       }
     } catch (err: any) {
       setLoading(false);
@@ -262,16 +308,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateOnboardingStatus = async (status: boolean) => {
-    if (!profile) return;
+    const targetUid = profile?.uid || user?.uid;
+    if (!targetUid) return;
     
-    const updatedProfile = { ...profile, hasCompletedOnboarding: status };
-    setProfile(updatedProfile);
+    if (profile) {
+      setProfile({ ...profile, hasCompletedOnboarding: status });
+    }
 
     try {
-      const userDocRef = doc(db, "users", profile.uid);
-      await updateDoc(userDocRef, {
+      const userDocRef = doc(db, "users", targetUid);
+      await setDoc(userDocRef, {
         hasCompletedOnboarding: status
-      });
+      }, { merge: true });
     } catch (err: any) {
       console.warn("[AuthContext] Error saving onboarding status to Firestore (possibly offline):", err);
     }
