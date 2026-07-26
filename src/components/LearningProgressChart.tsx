@@ -344,49 +344,59 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
               </svg>
 
               {/* Hover Tooltip Popup */}
-              {hoveredIdx !== null && chartPoints[hoveredIdx] && (
-                <div 
-                  className="absolute z-20 bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-xl p-3 shadow-2xl backdrop-blur-md pointer-events-none text-xs transform -translate-x-1/2 -translate-y-full mb-3 transition-all duration-150"
-                  style={{
-                    left: `${((hoveredIdx / (chartPoints.length > 1 ? chartPoints.length - 1 : 1)) * 84) + 8}%`,
-                    top: `${140 - (chartPoints[hoveredIdx].completionPercentage / 100) * 120 - 12}px`
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-3 border-b border-[var(--border-color)] pb-1.5 mb-1.5 font-mono">
-                    <span className="text-[10px] text-[var(--text-muted)] font-medium">
-                      {formatFullDateTime(chartPoints[hoveredIdx].timestamp)}
-                    </span>
-                    <span className="font-bold text-[var(--color-primary)]">
-                      {chartPoints[hoveredIdx].completionPercentage}%
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-[var(--text-main)] font-semibold">
-                    {chartPoints[hoveredIdx].completedSkillsCount} of {chartPoints[hoveredIdx].totalSkills} skills mastered
-                  </div>
-                  {chartPoints[hoveredIdx].currentSkill && (
-                    <div className="text-[10px] text-[var(--text-muted)] mt-1 truncate max-w-[190px]">
-                      Module: <span className="text-[var(--text-main)] font-medium">{chartPoints[hoveredIdx].currentSkill}</span>
+              {hoveredIdx !== null && chartPoints[hoveredIdx] && (() => {
+                const total = chartPoints.length;
+                const denominator = total > 1 ? total - 1 : 1;
+                const xPct = ((42 + (hoveredIdx / denominator) * 430) / 500) * 100;
+                const yPct = ((140 - (chartPoints[hoveredIdx].completionPercentage / 100) * 120) / 160) * 100;
+                return (
+                  <div 
+                    className="absolute z-20 bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-xl p-3 shadow-2xl backdrop-blur-md pointer-events-none text-xs transform -translate-x-1/2 -translate-y-full mb-3 transition-all duration-150"
+                    style={{
+                      left: `${xPct}%`,
+                      top: `${yPct}%`
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-3 border-b border-[var(--border-color)] pb-1.5 mb-1.5 font-mono">
+                      <span className="text-[10px] text-[var(--text-muted)] font-medium">
+                        {formatFullDateTime(chartPoints[hoveredIdx].timestamp)}
+                      </span>
+                      <span className="font-bold text-[var(--color-primary)]">
+                        {chartPoints[hoveredIdx].completionPercentage}%
+                      </span>
                     </div>
-                  )}
-                </div>
-              )}
+                    <div className="text-[11px] text-[var(--text-main)] font-semibold">
+                      {chartPoints[hoveredIdx].completedSkillsCount} of {chartPoints[hoveredIdx].totalSkills} skills mastered
+                    </div>
+                    {chartPoints[hoveredIdx].currentSkill && (
+                      <div className="text-[10px] text-[var(--text-muted)] mt-1 truncate max-w-[190px]">
+                        Module: <span className="text-[var(--text-main)] font-medium">{chartPoints[hoveredIdx].currentSkill}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
-            {/* X-Axis Date/Time Labels with Dynamic Mode Contrast */}
-            <div className="flex justify-between items-center text-[11px] font-mono font-medium text-[var(--text-muted)] pt-2 border-t border-[var(--border-color)] px-6">
+            {/* X-Axis Date/Time Labels aligned perfectly under SVG coordinates */}
+            <div className="relative w-full h-8 mt-4 border-t border-[var(--border-color)]">
               {chartPoints.map((item, idx) => {
                 const total = chartPoints.length;
                 const shouldShow = total <= 6 || idx === 0 || idx === total - 1 || idx % Math.ceil(total / 5) === 0;
                 
-                if (!shouldShow) return <span key={idx} className="w-0 overflow-hidden"></span>;
+                if (!shouldShow) return null;
+                
+                const denominator = total > 1 ? total - 1 : 1;
+                const xPct = ((42 + (idx / denominator) * 430) / 500) * 100;
                 
                 return (
                   <span 
                     key={idx} 
                     style={{ 
+                      left: `${xPct}%`,
                       color: hoveredIdx === idx ? "var(--color-primary)" : "var(--text-muted)" 
                     }}
-                    className={`cursor-pointer transition-colors ${hoveredIdx === idx ? "font-bold" : "hover:text-[var(--text-main)]"}`}
+                    className={`absolute top-2 transform -translate-x-1/2 whitespace-nowrap text-[11px] font-mono font-semibold cursor-pointer transition-colors duration-150 ${hoveredIdx === idx ? "font-bold scale-105" : "hover:text-[var(--text-main)]"}`}
                     onMouseEnter={() => setHoveredIdx(idx)}
                     onMouseLeave={() => setHoveredIdx(null)}
                   >
