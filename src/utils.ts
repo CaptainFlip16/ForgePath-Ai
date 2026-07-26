@@ -40,17 +40,6 @@ export function normalizeN8nRoadmap(data: any, fallbackGoal: string, fallbackBui
   }
 
   const modules: Module[] = rawSkills.map((item: any, idx: number) => {
-    const rawStatus = String(item.status || "").toLowerCase();
-    let status: 'Mastered' | 'In Progress' | 'Locked' = 'Locked';
-
-    if (rawStatus === 'completed' || rawStatus === 'mastered' || rawStatus === 'done' || rawStatus === 'passed') {
-      status = 'Mastered';
-    } else if (rawStatus === 'current' || rawStatus === 'in progress' || rawStatus === 'in_progress' || rawStatus === 'active') {
-      status = 'In Progress';
-    } else {
-      status = 'Locked';
-    }
-
     const title = item.title || item.name || item.skillName || `Milestone ${idx + 1}`;
     const id = item.id || `mod_${idx + 1}_${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
     const description = item.description || item.summary || item.details || `Master key principles and practical concepts for ${title}.`;
@@ -86,6 +75,9 @@ export function normalizeN8nRoadmap(data: any, fallbackGoal: string, fallbackBui
       recProj = { title: `${title} Capstone`, description: item.recommendedProject };
     }
 
+    // Every new generated path starts with module 0 as 'In Progress' and all other modules 'Locked'
+    const status: 'Mastered' | 'In Progress' | 'Locked' = idx === 0 ? 'In Progress' : 'Locked';
+
     return {
       id,
       title,
@@ -97,18 +89,7 @@ export function normalizeN8nRoadmap(data: any, fallbackGoal: string, fallbackBui
     };
   });
 
-  // Ensure at least one module is set to 'In Progress' if none are
-  const hasInProgress = modules.some((m) => m.status === 'In Progress');
-  if (!hasInProgress && modules.length > 0) {
-    const firstLocked = modules.find((m) => m.status === 'Locked');
-    if (firstLocked) {
-      firstLocked.status = 'In Progress';
-    } else if (modules[0].status !== 'Mastered') {
-      modules[0].status = 'In Progress';
-    }
-  }
-
-  // Calculate overall progress
+  // Calculate overall progress based on actual completed modules (0% for new paths)
   const completedCount = modules.filter((m) => m.status === 'Mastered').length;
   const overallProgress = Math.round((completedCount / modules.length) * 100);
 
@@ -123,7 +104,7 @@ export function generateFallbackRoadmap(become: string, build: string, skills: s
   const goal = become || "AI Automation Developer";
   const targetProject = build || "Custom Portfolio Project";
 
-  // Build sequential modules tailored to their target career path
+  // Build sequential modules tailored to their target career path starting cleanly at 0% progress
   const modules: Roadmap["modules"] = [
     {
       id: "fundamentals",
@@ -135,7 +116,7 @@ export function generateFallbackRoadmap(become: string, build: string, skills: s
         title: "Syntax Orchestrator",
         description: "Build a modular CLI utility that automates directory scanning and filters logs."
       },
-      status: "Mastered"
+      status: "In Progress"
     },
     {
       id: "js",
@@ -147,7 +128,7 @@ export function generateFallbackRoadmap(become: string, build: string, skills: s
         title: "Async Data Scraper",
         description: "Create a Node.js script that concurrently pulls and formats structured data from multiple public static endpoints."
       },
-      status: "Mastered"
+      status: "Locked"
     },
     {
       id: "react",
@@ -159,7 +140,7 @@ export function generateFallbackRoadmap(become: string, build: string, skills: s
         title: "Dynamic Control Hub",
         description: "Design an interactive, glassmorphic panel to visualize real-time structured data feeds."
       },
-      status: "Mastered"
+      status: "Locked"
     },
     {
       id: "apis",
@@ -171,7 +152,7 @@ export function generateFallbackRoadmap(become: string, build: string, skills: s
         title: "Weather Intelligence Dashboard",
         description: "Build a responsive interface that queries a real meteorological API, parses weather intelligence, and displays forecasts."
       },
-      status: "In Progress"
+      status: "Locked"
     },
     {
       id: "webhooks",
@@ -199,10 +180,12 @@ export function generateFallbackRoadmap(become: string, build: string, skills: s
     }
   ];
 
-  // If they selected certain skills, let's mark them as mastered or customize
+  const completedCount = modules.filter((m) => m.status === 'Mastered').length;
+  const overallProgress = Math.round((completedCount / modules.length) * 100);
+
   return {
     pathName: goal,
-    overallProgress: 25,
+    overallProgress,
     modules: modules
   };
 }

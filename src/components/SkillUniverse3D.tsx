@@ -225,7 +225,7 @@ function Scene({ skills, selectedId, onSelect, reducedMotion }: SkillUniversePro
           key={`${skill.id}-${skills[index + 1].id}`}
           from={skill}
           to={skills[index + 1]}
-          complete={index < 2}
+          complete={skill.status === 'completed'}
         />
       ))}
       {skills.map((skill) => (

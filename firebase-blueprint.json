@@ -96,6 +96,36 @@
         }
       },
       "required": ["completedSkills", "currentSkill", "completionPercentage"]
+    },
+    "ProgressHistoryItem": {
+      "title": "ProgressHistoryItem",
+      "description": "Historical snapshot of user's learning progress over time.",
+      "type": "object",
+      "properties": {
+        "completionPercentage": {
+          "type": "integer"
+        },
+        "completedSkillsCount": {
+          "type": "integer"
+        },
+        "totalSkills": {
+          "type": "integer"
+        },
+        "completedSkills": {
+          "type": "array"
+        },
+        "currentSkill": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "object"
+        }
+      },
+      "required": ["completionPercentage", "completedSkillsCount", "totalSkills"]
     }
   },
   "firestore": {
@@ -114,6 +144,10 @@
     "/users/{uid}/progress/data": {
       "schema": "ProgressData",
       "description": "Ongoing skill mastery and progression state."
+    },
+    "/users/{uid}/progressHistory/{historyId}": {
+      "schema": "ProgressHistoryItem",
+      "description": "Historical snapshots of learning progress over time."
     }
   }
 }

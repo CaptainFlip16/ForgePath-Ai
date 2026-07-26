@@ -228,7 +228,7 @@ body {
   .workspace { min-height: auto; padding: 18px; overflow: visible; }
   .mobile-header { display: flex; }
   .workspace-header { margin-top: 10px; }
-  .help-button { display: none; }
+  .help-button, .desktop-only-toggle { display: none !important; }
   .workspace-header h1 { font-size: 26px; }
   .universe-card { min-height: 420px; height: 450px; }
   .details-panel { min-height: auto; max-height: none; border-top: 1px solid var(--border-color); border-left: 0; padding: 20px 18px; }

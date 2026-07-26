@@ -49,7 +49,11 @@ import { useAuth } from "./lib/AuthContext";
 import { auth, doc, getDoc } from "./lib/firebase";
 import { AuthPage } from "./components/AuthPage";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { LiveBackground } from "./components/LiveBackground";
+import { Footer } from "./components/Footer";
+import { HowItWorksModal } from "./components/HowItWorksModal";
 import simpleRoadMapImg from "./assets/images/simple_road_pin_map_1784812763624.jpg";
+import chatMentorMockupImg from "./assets/images/chat_mentor_mockup_1784616949709.jpg";
 import { 
   saveOnboarding, 
   getOnboarding, 
@@ -58,8 +62,106 @@ import {
   saveProgress, 
   getProgress,
   deleteRoadmap,
-  testFirestoreConnection
+  addProgressSnapshot,
+  getProgressHistory,
+  clearProgressHistory,
+  type ProgressHistoryItem,
+  testFirestoreConnection,
+  type OnboardingData
 } from "./lib/firestoreService";
+import { LearningProgressChart } from "./components/LearningProgressChart";
+
+export interface PortfolioProject {
+  id: string;
+  title: string;
+  shortTag: string;
+  category: string;
+  timeEstimate: string;
+  difficulty: string;
+  description: string;
+  problem: string;
+  keyFeatures: string[];
+  prerequisites: string[];
+  milestones: { step: number; title: string; desc: string }[];
+}
+
+export const PORTFOLIO_PROJECTS: PortfolioProject[] = [
+  {
+    id: "weather-dashboard",
+    title: "Weather Intelligence Dashboard",
+    shortTag: "APIs",
+    category: "APIs & Integration",
+    timeEstimate: "3-5 Hours",
+    difficulty: "Beginner",
+    description: "Integrate external meteorological APIs to pull, format, and render dynamic weather parameters in a glassmorphic dashboard interface.",
+    problem: "Users need immediate access to structured meteorological data across diverse endpoints without dealing with complex developer tools, authentications, or rate limits.",
+    keyFeatures: [
+      "Dynamic search query scanning",
+      "Graceful connection recovery",
+      "Dynamic temperature charts",
+      "Glassmorphic UI overlays"
+    ],
+    prerequisites: [],
+    milestones: [
+      { step: 1, title: "Understand the target API", desc: "Acquire API keys and construct curl sequences to verify endpoints." },
+      { step: 2, title: "Mockup dynamic component tree", desc: "Build clean, modular visual frames for current weather and maps." },
+      { step: 3, title: "Establish Fetch network sockets", desc: "Hook state functions to digest live meteorological telemetry." },
+      { step: 4, title: "Clean and format payload variables", desc: "Verify coordinates, format metrics into metric/imperial structures." },
+      { step: 5, title: "Incorporate crash handlers", desc: "Handle offline alerts and missing locations gracefully." },
+      { step: 6, title: "Build and deploy production artifact", desc: "Prepare responsive static builds to demonstrate output." }
+    ]
+  },
+  {
+    id: "personal-portfolio-ai",
+    title: "Personal Portfolio AI",
+    shortTag: "Webhooks",
+    category: "Webhooks & Agents",
+    timeEstimate: "4-6 Hours",
+    difficulty: "Intermediate",
+    description: "Build a customized agentic chat companion trained to represent your engineering credentials and experience.",
+    problem: "Recruiters and collaborators need interactive access to your project history, skills, and code samples through an active AI persona rather than a static resume.",
+    keyFeatures: [
+      "Agent persona & system prompt tuning",
+      "Context injection & RAG pipeline",
+      "Interactive streaming chat UI",
+      "Custom tools & action handlers"
+    ],
+    prerequisites: ["weather-dashboard"],
+    milestones: [
+      { step: 1, title: "Design agent persona and knowledge base schema", desc: "Define conversation bounds and prompt context wrappers." },
+      { step: 2, title: "Set up prompt pipeline with context injection", desc: "Connect local resume and project artifacts into the system prompt." },
+      { step: 3, title: "Implement webhook triggers for external chat interactions", desc: "Build event handlers to process inbound messages in real time." },
+      { step: 4, title: "Build interactive portfolio chat widget UI", desc: "Create a glassmorphic floating assistant or standalone view." },
+      { step: 5, title: "Add streaming response handlers and fallbacks", desc: "Handle typing indicators, streaming chunks, and error recoveries." },
+      { step: 6, title: "Deploy and publish live portfolio agent", desc: "Verify end-to-end user interaction and host the application." }
+    ]
+  },
+  {
+    id: "automated-news-summarizer",
+    title: "Automated News Summarizer",
+    shortTag: "AI Agents",
+    category: "AI Agents & RAG",
+    timeEstimate: "5-8 Hours",
+    difficulty: "Advanced",
+    description: "Connect standard RSS pipelines to Gemini streaming models to automatically organize daily tech news summaries.",
+    problem: "Developers and researchers face information overload from daily technical news feeds and need automated concise summaries categorized by relevance.",
+    keyFeatures: [
+      "Automated RSS ingestion",
+      "Gemini streaming summaries",
+      "Topic classification & tagging",
+      "Daily automated digest triggers"
+    ],
+    prerequisites: ["personal-portfolio-ai"],
+    milestones: [
+      { step: 1, title: "Configure RSS feed parser & data ingestion pipeline", desc: "Fetch XML/JSON news feeds and clean HTML payloads." },
+      { step: 2, title: "Integrate Gemini streaming models for article summarization", desc: "Generate bulleted key takeaways using structured AI prompts." },
+      { step: 3, title: "Build automated topic categorization and tagging", desc: "Cluster articles by tech domain (AI, Web, Systems, DevOps)." },
+      { step: 4, title: "Design responsive news digest UI dashboard", desc: "Present daily briefings with read times and direct source links." },
+      { step: 5, title: "Add export & bookmarking features", desc: "Allow users to save key insights to local or cloud storage." },
+      { step: 6, title: "Deploy automated cron/event trigger for daily updates", desc: "Schedule background refresh routines for real-time briefs." }
+    ]
+  }
+];
 
 export default function App() {
   const { user, profile, loading: authLoading, logOut, updateOnboardingStatus } = useAuth();
@@ -117,7 +219,9 @@ export default function App() {
   const [isGeneratingRoadmap, setIsGeneratingRoadmap] = useState<boolean>(false);
   const [roadmapGenerationError, setRoadmapGenerationError] = useState<string | null>(null);
 
-  // Active Project Detail focus
+  // Active Project Detail focus and progress tracking
+  const [completedProjects, setCompletedProjects] = useState<string[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("weather-dashboard");
   const [activeProjectFocus, setActiveProjectFocus] = useState<boolean>(false);
 
   // Chat Interface state
@@ -141,6 +245,13 @@ export default function App() {
 
   // Text-to-Speech (Voice Output) state
   const [speakingMsgIndex, setSpeakingMsgIndex] = useState<number | null>(null);
+
+  // How It Works Modal overlay state
+  const [showHowItWorksModal, setShowHowItWorksModal] = useState<boolean>(false);
+
+  // Firestore Progress History trajectory state
+  const [progressHistory, setProgressHistory] = useState<ProgressHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
 
   // Clean markdown and formatting symbols from response text before speaking
   const cleanTextForSpeech = (rawText: string): string => {
@@ -352,12 +463,56 @@ export default function App() {
       try {
         await testFirestoreConnection();
         
-        // 1. Fetch user's custom calibrated roadmap
+        // 1. Fetch user's custom calibrated roadmap & progress from Cloud Firestore
         const dbRoadmap = await getRoadmap(user.uid);
-        if (dbRoadmap) {
-          setRoadmap(dbRoadmap);
-          const inProgressMod = dbRoadmap.modules.find((m: any) => m.status === "In Progress");
-          setSelectedModule(inProgressMod || dbRoadmap.modules[3] || dbRoadmap.modules[0]);
+        const dbProgress = await getProgress(user.uid);
+
+        if (dbProgress && Array.isArray(dbProgress.completedProjects)) {
+          setCompletedProjects(dbProgress.completedProjects);
+        } else {
+          setCompletedProjects([]);
+        }
+
+        let activeRoadmap: Roadmap | null = dbRoadmap;
+
+        if (activeRoadmap) {
+          // Merge dbProgress if available to guarantee completedSkills are synced
+          if (dbProgress && Array.isArray(dbProgress.completedSkills)) {
+            const mergedModules = activeRoadmap.modules.map((m) => {
+              const isMastered = dbProgress.completedSkills.some(
+                (titleOrId) => titleOrId.toLowerCase() === m.title.toLowerCase() || titleOrId === m.id
+              );
+              if (isMastered) {
+                return { ...m, status: "Mastered" as const };
+              }
+              return m;
+            });
+
+            // Ensure next locked module is marked In Progress if none is currently active
+            let foundNextInProg = false;
+            const syncedModules = mergedModules.map((m) => {
+              if (m.status === "Mastered") return m;
+              if (!foundNextInProg && (m.status === "In Progress" || m.status === "Locked")) {
+                foundNextInProg = true;
+                return { ...m, status: "In Progress" as const };
+              }
+              return m;
+            });
+
+            const completedCount = syncedModules.filter(m => m.status === "Mastered").length;
+            const overallProgress = Math.round((completedCount / syncedModules.length) * 100);
+
+            activeRoadmap = {
+              ...activeRoadmap,
+              overallProgress,
+              modules: syncedModules
+            };
+          }
+
+          setRoadmap(activeRoadmap);
+          localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(activeRoadmap));
+          const inProgressMod = activeRoadmap.modules.find((m: any) => m.status === "In Progress");
+          setSelectedModule(inProgressMod || activeRoadmap.modules[0]);
         } else {
           // Sync/Migrate from localStorage if exists
           const savedRoadmap = localStorage.getItem(`forgepath_roadmap_${user.uid}`);
@@ -366,9 +521,14 @@ export default function App() {
               const parsed = JSON.parse(savedRoadmap);
               setRoadmap(parsed);
               const inProgressMod = parsed.modules.find((m: any) => m.status === "In Progress");
-              setSelectedModule(inProgressMod || parsed.modules[3] || parsed.modules[0]);
+              setSelectedModule(inProgressMod || parsed.modules[0]);
               // Upload to Firestore so they have server persistence
               await saveRoadmap(user.uid, parsed);
+              await saveProgress(user.uid, {
+                completedSkills: parsed.modules.filter((m: any) => m.status === "Mastered").map((m: any) => m.title),
+                currentSkill: inProgressMod?.title || "",
+                completionPercentage: parsed.overallProgress || 0
+              });
             } catch (e) {
               console.error("Migration parse error", e);
             }
@@ -385,8 +545,34 @@ export default function App() {
           setTargetBuild(dbOnboarding.desiredOutcome || "");
         }
 
+        // 3. Fetch progress history snapshots from Firestore
+        setHistoryLoading(true);
+        let dbHistory = await getProgressHistory(user.uid);
+
+        // If user has an active roadmap or progress state but no history snapshot yet,
+        // create initial baseline snapshot so chart renders real data immediately
+        if (dbHistory.length === 0 && (activeRoadmap || dbProgress)) {
+          const currentMods = activeRoadmap?.modules || [];
+          const masteredMods = currentMods.filter((m: any) => m.status === "Mastered");
+          const totalMods = currentMods.length || 1;
+          const pct = activeRoadmap?.overallProgress ?? dbProgress?.completionPercentage ?? 0;
+          
+          await addProgressSnapshot(user.uid, {
+            completionPercentage: pct,
+            completedSkillsCount: dbProgress?.completedSkills?.length || masteredMods.length,
+            totalSkills: totalMods,
+            completedSkills: dbProgress?.completedSkills || masteredMods.map((m: any) => m.title),
+            currentSkill: dbProgress?.currentSkill || activeRoadmap?.modules.find((m: any) => m.status === "In Progress")?.title || ""
+          });
+
+          dbHistory = await getProgressHistory(user.uid);
+        }
+
+        setProgressHistory(dbHistory);
+        setHistoryLoading(false);
+
         // 3. Determine if user has completed onboarding
-        const userHasCompletedOnboarding = !!(profile?.hasCompletedOnboarding || dbRoadmap || dbOnboarding);
+        const userHasCompletedOnboarding = !!(profile?.hasCompletedOnboarding || activeRoadmap || dbOnboarding);
 
         if (userHasCompletedOnboarding) {
           if (!profile?.hasCompletedOnboarding) {
@@ -419,6 +605,11 @@ export default function App() {
   const handleSignOut = async () => {
     setCurrentView("home");
     setActiveTab("my-path");
+    setRoadmap(null);
+    setSelectedModule(null);
+    setCompletedProjects([]);
+    setSelectedProjectId("weather-dashboard");
+    setActiveProjectFocus(false);
     try {
       await logOut();
     } catch (err) {
@@ -474,7 +665,7 @@ export default function App() {
         progress = 100;
       } else if (m.status === "In Progress") {
         skillStatus = "current";
-        progress = 45;
+        progress = 0;
       } else if (idx === total - 1) {
         skillStatus = "destination";
         progress = 0;
@@ -555,7 +746,7 @@ export default function App() {
           const fallbackData = generateFallbackRoadmap(profile?.fullName || "Learner", "Custom Application Portfolio", ["Programming Fundamentals"]);
           setRoadmap(fallbackData);
           const inProgressMod = fallbackData.modules.find((m) => m.status === "In Progress");
-          setSelectedModule(inProgressMod || fallbackData.modules[3] || fallbackData.modules[0]);
+          setSelectedModule(inProgressMod || fallbackData.modules[0]);
         }
         setCurrentView("dashboard");
       } else {
@@ -573,19 +764,60 @@ export default function App() {
 
     try {
       const dbRoadmap = await getRoadmap(activeUser.uid);
+      const dbProgress = await getProgress(activeUser.uid);
       const dbOnboarding = await getOnboarding(activeUser.uid);
+
+      if (dbProgress && Array.isArray(dbProgress.completedProjects)) {
+        setCompletedProjects(dbProgress.completedProjects);
+      } else {
+        setCompletedProjects([]);
+      }
+
+      let activeRoadmap = dbRoadmap;
+      if (activeRoadmap && dbProgress && Array.isArray(dbProgress.completedSkills)) {
+        const mergedModules = activeRoadmap.modules.map((m) => {
+          const isMastered = dbProgress.completedSkills.some(
+            (titleOrId) => titleOrId.toLowerCase() === m.title.toLowerCase() || titleOrId === m.id
+          );
+          if (isMastered) {
+            return { ...m, status: "Mastered" as const };
+          }
+          return m;
+        });
+
+        let foundNextInProg = false;
+        const syncedModules = mergedModules.map((m) => {
+          if (m.status === "Mastered") return m;
+          if (!foundNextInProg && (m.status === "In Progress" || m.status === "Locked")) {
+            foundNextInProg = true;
+            return { ...m, status: "In Progress" as const };
+          }
+          return m;
+        });
+
+        const completedCount = syncedModules.filter(m => m.status === "Mastered").length;
+        const overallProgress = Math.round((completedCount / syncedModules.length) * 100);
+
+        activeRoadmap = {
+          ...activeRoadmap,
+          overallProgress,
+          modules: syncedModules
+        };
+      }
+
       const isCompleted = !!(
         profile?.hasCompletedOnboarding || 
         hasCompletedOnboardingArg || 
-        dbRoadmap || 
+        activeRoadmap || 
         dbOnboarding
       );
 
       if (isCompleted) {
-        if (dbRoadmap) {
-          setRoadmap(dbRoadmap);
-          const inProgressMod = dbRoadmap.modules.find((m: any) => m.status === "In Progress");
-          setSelectedModule(inProgressMod || dbRoadmap.modules[3] || dbRoadmap.modules[0]);
+        if (activeRoadmap) {
+          setRoadmap(activeRoadmap);
+          localStorage.setItem(`forgepath_roadmap_${activeUser.uid}`, JSON.stringify(activeRoadmap));
+          const inProgressMod = activeRoadmap.modules.find((m: any) => m.status === "In Progress");
+          setSelectedModule(inProgressMod || activeRoadmap.modules[0]);
         }
         if (!profile?.hasCompletedOnboarding) {
           await updateOnboardingStatus(true);
@@ -700,6 +932,17 @@ export default function App() {
         completionPercentage: normalizedRoadmap.overallProgress
       });
 
+      await addProgressSnapshot(user.uid, {
+        completionPercentage: normalizedRoadmap.overallProgress,
+        completedSkillsCount: normalizedRoadmap.modules.filter((m) => m.status === "Mastered").length,
+        totalSkills: normalizedRoadmap.modules.length,
+        completedSkills: normalizedRoadmap.modules.filter((m) => m.status === "Mastered").map((m) => m.title),
+        currentSkill: activeMod?.title || ""
+      });
+
+      const updatedHistory = await getProgressHistory(user.uid);
+      setProgressHistory(updatedHistory);
+
       localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(normalizedRoadmap));
       await updateOnboardingStatus(true);
 
@@ -743,28 +986,148 @@ export default function App() {
       modules: finalModules
     };
 
-    setRoadmap(updatedRoadmap);
-
     const nextInProg = finalModules.find(m => m.status === "In Progress");
-    if (nextInProg) {
-      setSelectedModule(nextInProg);
-    } else {
-      // If none are in progress, default to first or selected
-      setSelectedModule(finalModules.find(m => m.id === moduleId) || finalModules[0]);
-    }
 
+    // REQUIREMENT: Save to Firestore FIRST before updating local state
     try {
       await saveRoadmap(user.uid, updatedRoadmap);
       await saveProgress(user.uid, {
         completedSkills: finalModules.filter(m => m.status === "Mastered").map(m => m.title),
+        completedProjects: completedProjects,
         currentSkill: nextInProg?.title || "Path Completed!",
         completionPercentage: overallProgress
       });
+
+      await addProgressSnapshot(user.uid, {
+        completionPercentage: overallProgress,
+        completedSkillsCount: completedCount,
+        totalSkills: finalModules.length,
+        completedSkills: finalModules.filter(m => m.status === "Mastered").map(m => m.title),
+        currentSkill: nextInProg?.title || "Path Completed!"
+      });
+
+      const updatedHistory = await getProgressHistory(user.uid);
+      setProgressHistory(updatedHistory);
+
+      // Update local state and localStorage ONLY AFTER Firestore write succeeds
+      setRoadmap(updatedRoadmap);
+      if (nextInProg) {
+        setSelectedModule(nextInProg);
+      } else {
+        setSelectedModule(finalModules.find(m => m.id === moduleId) || finalModules[0]);
+      }
+      localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(updatedRoadmap));
 
       setNotice(`Module mastered! Progress updated to ${overallProgress}%`);
       setTimeout(() => setNotice(""), 3000);
     } catch (err) {
       console.error("Error setting module master state in Firestore:", err);
+      setNotice("Failed to persist progress to Firestore. Please check connection.");
+      setTimeout(() => setNotice(""), 4000);
+    }
+  };
+
+  // Helper to mark a portfolio project as completed and unlock next projects in Firestore
+  const handleMarkProjectCompleted = async (projectId: string) => {
+    if (!user) {
+      setNotice("Please sign in to save your project progress.");
+      setTimeout(() => setNotice(""), 3000);
+      return;
+    }
+
+    try {
+      const currentDbProgress = await getProgress(user.uid);
+      const existingCompleted = currentDbProgress?.completedProjects || completedProjects || [];
+
+      if (existingCompleted.includes(projectId)) {
+        setNotice("This project is already marked as completed.");
+        setTimeout(() => setNotice(""), 2500);
+        return;
+      }
+
+      const updatedCompletedProjects = Array.from(new Set([...existingCompleted, projectId]));
+
+      const existingSkills = currentDbProgress?.completedSkills || (roadmap ? roadmap.modules.filter(m => m.status === 'Mastered').map(m => m.title) : []);
+      const currentSkillName = currentDbProgress?.currentSkill || selectedModule?.title || "";
+      const completionPct = currentDbProgress?.completionPercentage || (roadmap ? roadmap.overallProgress : 0);
+
+      const projectModuleMap: Record<string, string> = {
+        "weather-dashboard": "apis",
+        "personal-portfolio-ai": "webhooks",
+        "automated-news-summarizer": "ai_agents"
+      };
+
+      let updatedRoadmap = roadmap;
+      let finalSkills = existingSkills;
+      let updatedPct = completionPct;
+
+      const targetModuleId = projectModuleMap[projectId];
+      if (roadmap && targetModuleId) {
+        const matchMod = roadmap.modules.find(m => 
+          m.id === targetModuleId || 
+          m.id.toLowerCase().includes(targetModuleId) ||
+          m.title.toLowerCase().includes(targetModuleId.replace('_', ''))
+        );
+        if (matchMod && matchMod.status !== "Mastered") {
+          const finalModules = roadmap.modules.map(m => {
+            if (m.id === matchMod.id) return { ...m, status: "Mastered" as const };
+            return m;
+          });
+          const completedCount = finalModules.filter(m => m.status === "Mastered").length;
+          updatedPct = Math.round((completedCount / finalModules.length) * 100);
+          updatedRoadmap = {
+            ...roadmap,
+            overallProgress: updatedPct,
+            modules: finalModules
+          };
+          finalSkills = finalModules.filter(m => m.status === "Mastered").map(m => m.title);
+        }
+      }
+
+      if (updatedRoadmap && updatedRoadmap !== roadmap) {
+        await saveRoadmap(user.uid, updatedRoadmap);
+      }
+
+      // REQUIREMENT: Save to Firestore FIRST before updating local state
+      await saveProgress(user.uid, {
+        completedSkills: finalSkills,
+        completedProjects: updatedCompletedProjects,
+        currentSkill: currentSkillName,
+        completionPercentage: updatedPct
+      });
+
+      const totalModsCount = updatedRoadmap ? updatedRoadmap.modules.length : (roadmap ? roadmap.modules.length : 1);
+      await addProgressSnapshot(user.uid, {
+        completionPercentage: updatedPct,
+        completedSkillsCount: finalSkills.length,
+        totalSkills: totalModsCount,
+        completedSkills: finalSkills,
+        currentSkill: currentSkillName
+      });
+
+      const freshHistory = await getProgressHistory(user.uid);
+      setProgressHistory(freshHistory);
+
+      // Update local React state ONLY AFTER Firestore write succeeds
+      setCompletedProjects(updatedCompletedProjects);
+      localStorage.setItem(`forgepath_completed_projects_${user.uid}`, JSON.stringify(updatedCompletedProjects));
+      
+      if (updatedRoadmap) {
+        setRoadmap(updatedRoadmap);
+        localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(updatedRoadmap));
+      }
+
+      const nextProj = PORTFOLIO_PROJECTS.find(p => p.prerequisites.includes(projectId));
+      if (nextProj) {
+        setNotice(`Project completed! "${nextProj.title}" unlocked.`);
+      } else {
+        setNotice("Project completed! All portfolio projects mastered!");
+      }
+      setTimeout(() => setNotice(""), 3500);
+    } catch (err) {
+      console.error("Error saving project completion to Firestore:", err);
+      setNotice("Failed to update project status in Firestore. Please try again.");
+      setTimeout(() => setNotice(""), 4000);
     }
   };
 
@@ -873,6 +1236,131 @@ export default function App() {
     }
   };
 
+  const [isSavingSettings, setIsSavingSettings] = useState<boolean>(false);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
+  const [isResettingPath, setIsResettingPath] = useState<boolean>(false);
+
+  // Save updated onboarding and roadmap calibration preferences to Firestore
+  const handleSaveSettings = async () => {
+    const currentGoal = (roadmap?.pathName || targetCareer || "").trim();
+    if (!currentGoal) {
+      setNotice("Target stack & goal cannot be empty.");
+      setTimeout(() => setNotice(""), 3000);
+      return;
+    }
+
+    if (!weeklyHours) {
+      setNotice("Please select a time commitment.");
+      setTimeout(() => setNotice(""), 3000);
+      return;
+    }
+
+    if (!user) {
+      setNotice("You must be logged in to save settings.");
+      setTimeout(() => setNotice(""), 3000);
+      return;
+    }
+
+    setIsSavingSettings(true);
+    try {
+      // 1. Prepare updated roadmap if existing
+      let updatedRoadmap = roadmap;
+      if (updatedRoadmap) {
+        updatedRoadmap = {
+          ...updatedRoadmap,
+          pathName: currentGoal
+        };
+      }
+
+      // 2. Read existing onboarding data to preserve skills, learning styles, outcome
+      const existingDbOnboarding = await getOnboarding(user.uid);
+      const updatedOnboarding: OnboardingData = {
+        learningGoal: currentGoal,
+        selectedSkills: existingDbOnboarding?.selectedSkills || selectedSkills || [],
+        weeklyTime: weeklyHours,
+        learningStyle: existingDbOnboarding?.learningStyle || methodologies || [],
+        desiredOutcome: existingDbOnboarding?.desiredOutcome || targetBuild || "Portfolio Project"
+      };
+
+      // 3. Persist to Firestore: onboarding preferences & roadmap
+      await saveOnboarding(user.uid, updatedOnboarding);
+
+      if (updatedRoadmap) {
+        await saveRoadmap(user.uid, updatedRoadmap);
+        localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(updatedRoadmap));
+        setRoadmap(updatedRoadmap);
+      }
+
+      setTargetCareer(currentGoal);
+      setNotice("Platform calibration settings saved successfully!");
+      setTimeout(() => setNotice(""), 3500);
+    } catch (err: any) {
+      console.error("Error saving calibration settings to Firestore:", err);
+      setNotice("Failed to save settings. Please try again.");
+      setTimeout(() => setNotice(""), 4000);
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  // Open reset confirmation modal or switch to onboarding if guest
+  const handleResetAndBuildNewPath = () => {
+    if (!user) {
+      setCurrentView("onboarding_1");
+      return;
+    }
+    setShowResetConfirmModal(true);
+  };
+
+  // Execute actual roadmap and progress reset across Firestore and local state
+  const executeResetPath = async () => {
+    if (!user) return;
+    setIsResettingPath(true);
+
+    try {
+      // 1. Delete active roadmap in Firestore
+      await deleteRoadmap(user.uid);
+
+      // 2. Reset progress in Firestore so new path doesn't inherit old progress
+      await saveProgress(user.uid, {
+        completedSkills: [],
+        completedProjects: [],
+        currentSkill: "",
+        completionPercentage: 0
+      });
+      await clearProgressHistory(user.uid);
+      setProgressHistory([]);
+
+      // 3. Update onboarding status in profile
+      await updateOnboardingStatus(false);
+
+      // 4. Reset local React states
+      setRoadmap(null);
+      setSelectedModule(null);
+      setCompletedProjects([]);
+      setTargetCareer("");
+      setTargetBuild("");
+      setSelectedSkills(["Programming Fundamentals", "HTML & CSS"]);
+      setActiveTab("my-path");
+
+      // 5. Clear local storage cache
+      localStorage.removeItem(`forgepath_roadmap_${user.uid}`);
+      localStorage.removeItem(`forgepath_completed_projects_${user.uid}`);
+
+      // 6. Close modal & redirect user to Onboarding Step 1
+      setShowResetConfirmModal(false);
+      setCurrentView("onboarding_1");
+      setNotice("Learning path reset successfully. Please configure your new goal!");
+      setTimeout(() => setNotice(""), 4000);
+    } catch (err: any) {
+      console.error("Error resetting roadmap in Firestore:", err);
+      setNotice("Failed to reset path. Please check your connection.");
+      setTimeout(() => setNotice(""), 4000);
+    } finally {
+      setIsResettingPath(false);
+    }
+  };
+
   // Dynamic status tag styling helpers
   const getStatusColor = (status: 'Mastered' | 'In Progress' | 'Locked') => {
     switch (status) {
@@ -887,31 +1375,26 @@ export default function App() {
 
   if (authLoading || dataLoading) {
     return (
-      <div className="bg-[#05070a] text-on-surface min-h-screen flex flex-col items-center justify-center relative overflow-hidden antialiased">
-        <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-          <div className="absolute top-0 right-0 w-1/2 h-1/2 bg-primary-container/5 blur-[120px] rounded-full"></div>
-          <div className="absolute bottom-0 left-0 w-3/4 h-3/4 bg-secondary-container/3 blur-[150px] rounded-full"></div>
-        </div>
+      <div className="bg-[var(--bg-app)] text-[var(--text-main)] min-h-screen flex flex-col items-center justify-center relative overflow-hidden antialiased">
+        <LiveBackground theme={theme} />
         <div className="relative z-10 flex flex-col items-center justify-center text-center">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary to-inverse-primary flex items-center justify-center shadow-lg shadow-primary/20 mb-6">
-            <Compass className="text-on-primary w-6 h-6 animate-spin-slow" />
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 mb-6 border border-indigo-400/30">
+            <Compass className="text-white w-6 h-6 animate-spin-slow" />
           </div>
-          <h2 className="text-lg font-bold tracking-widest text-primary uppercase mb-2">ForgePath AI</h2>
-          <p className="text-xs text-on-surface-variant/60 font-mono tracking-wide animate-pulse">Synchronizing Firestore credentials & database state...</p>
+          <h2 className="text-lg font-bold tracking-widest text-[var(--text-main)] uppercase mb-2">ForgePath AI</h2>
+          <p className="text-xs text-[var(--text-muted)] font-mono tracking-wide animate-pulse">Synchronizing Firestore credentials &amp; database state...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-[#05070a] text-on-surface min-h-screen font-sans flex flex-col selection:bg-primary-container/20 selection:text-[#c0c1ff] relative overflow-x-hidden antialiased">
+    <div className="bg-[var(--bg-app)] text-[var(--text-main)] min-h-screen font-sans flex flex-col selection:bg-indigo-500/20 selection:text-indigo-300 relative overflow-x-hidden antialiased transition-colors duration-700">
       
-      {/* Decorative Blur Background Lights */}
-      <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-        <div className="absolute top-0 right-0 w-1/2 h-1/2 bg-primary-container/5 blur-[120px] rounded-full"></div>
-        <div className="absolute bottom-0 left-0 w-3/4 h-3/4 bg-secondary-container/3 blur-[150px] rounded-full"></div>
-        <div className="absolute top-1/3 left-1/4 w-[400px] h-[400px] bg-secondary/3 rounded-full blur-[100px] mix-blend-screen animate-pulse"></div>
-      </div>
+      {/* Theme-Aware Live Background for Landing Screen, Onboarding Screens & Loading Screen */}
+      {(currentView === "home" || currentView.startsWith("onboarding") || currentView === "loading") && (
+        <LiveBackground theme={theme} />
+      )}
 
       {/* VIEW: HOME (CINEMATIC LANDING SCREEN) */}
       {currentView === "home" && (
@@ -927,9 +1410,14 @@ export default function App() {
               </div>
               
               <div className="hidden md:flex items-center gap-8">
-                <a className="text-xs font-semibold text-primary hover:text-[var(--text-main)] transition-colors" href="#">Home Overview</a>
-                <a className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors" href="#how-it-works">Roadmaps</a>
-                <a className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors" href="#features">AI Mentor Hub</a>
+                <a className="text-xs font-semibold text-primary hover:text-[var(--text-main)] transition-colors cursor-pointer" onClick={() => setCurrentView("home")}>Home Overview</a>
+                <button 
+                  onClick={() => setShowHowItWorksModal(true)} 
+                  className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer"
+                >
+                  How It Works
+                </button>
+                <a className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors" href="#ai-mentor">AI Mentor Hub</a>
               </div>
 
               <div className="flex items-center gap-3 sm:gap-4">
@@ -982,87 +1470,229 @@ export default function App() {
             {/* Hero Interactive Split Column Section */}
             <section className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center min-h-[750px]">
               <div className="flex flex-col gap-6">
-                <h1 className="text-5xl md:text-6xl font-bold tracking-tight text-on-background leading-[1.1]">
+                <h1 className="text-5xl md:text-6xl font-bold tracking-tight text-[var(--text-main)] leading-[1.1]">
                   Your skills are scattered.<br />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary via-[#8083ff] to-secondary">
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-indigo-500 to-emerald-600 dark:from-primary dark:via-[#8083ff] dark:to-secondary">
                     Your path doesn't have to be.
                   </span>
                 </h1>
-                <p className="text-lg text-on-surface-variant max-w-lg leading-relaxed">
+                <p className="text-lg text-[var(--text-muted)] max-w-lg leading-relaxed">
                   ForgePath AI leverages advanced spatial mapping to transform your complex career goals into structured, milestone-oriented skill roadmaps and production-grade portfolio projects.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 mt-4">
                   <button 
                     onClick={handleBuildMyPathClick}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase tracking-wider font-bold py-4 px-8 rounded-xl shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 group hover:translate-y-[-1px] border border-indigo-400/30"
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase tracking-wider font-bold py-4 px-8 rounded-xl shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 group hover:translate-y-[-1px] border border-indigo-400/30 cursor-pointer"
                   >
                     Build My Path
                     <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                   </button>
-                  <a 
-                    href="#how-it-works"
-                    className="border border-white/10 hover:border-white/20 hover:bg-white/5 text-white text-xs uppercase tracking-wider font-semibold py-4 px-8 rounded-xl transition-all text-center"
+                  <button 
+                    onClick={() => setShowHowItWorksModal(true)}
+                    className="border border-[var(--border-color)] hover:border-[var(--border-strong)] bg-[var(--bg-surface)] hover:bg-[var(--bg-hover)] text-[var(--text-main)] text-xs uppercase tracking-wider font-semibold py-4 px-8 rounded-xl transition-all text-center cursor-pointer"
                   >
                     Explore How It Works
-                  </a>
+                  </button>
                 </div>
               </div>
 
               {/* Sophisticated visual map display */}
-              <div className="relative w-full h-[450px] lg:h-[550px] rounded-2xl overflow-hidden glass-panel border border-white/10 shadow-2xl group ai-glow bg-[#05070a]">
+              <div className="relative w-full h-[450px] lg:h-[550px] rounded-2xl overflow-hidden glass-panel border border-[var(--border-color)] shadow-2xl group ai-glow bg-[var(--bg-surface-subtle)]">
                 <img 
                   src={simpleRoadMapImg} 
                   alt="Skill Roadmap Path" 
                   className="w-full h-full object-cover rounded-2xl transition-transform duration-700 group-hover:scale-105"
                   referrerPolicy="no-referrer"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-[#05070a]/60 via-transparent to-transparent pointer-events-none"></div>
+                <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-app)]/60 via-transparent to-transparent pointer-events-none"></div>
               </div>
             </section>
 
             {/* How It Works Section */}
-            <section id="how-it-works" className="max-w-7xl mx-auto px-6 py-24 border-t border-white/5 scroll-smooth">
+            <section id="how-it-works" className="max-w-7xl mx-auto px-6 py-24 border-t border-[var(--border-color)] scroll-smooth">
               <div className="text-center mb-16">
-                <h2 className="text-3xl md:text-4xl font-bold text-on-surface mb-3">How It Works</h2>
-                <p className="text-on-surface-variant">Three modular phases to continuous mastery.</p>
+                <h2 className="text-3xl md:text-4xl font-bold text-[var(--text-main)] mb-3">How It Works</h2>
+                <p className="text-[var(--text-muted)]">Three modular phases to continuous mastery.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative">
                 {/* Horizontal progress bar for desktop */}
-                <div className="hidden md:block absolute top-[28px] left-[15%] right-[15%] h-[2px] bg-gradient-to-r from-primary/30 via-secondary/30 to-primary/30 z-0"></div>
+                <div className="hidden md:block absolute top-[28px] left-[15%] right-[15%] h-[2px] bg-gradient-to-r from-indigo-500/30 via-emerald-500/30 to-indigo-500/30 z-0"></div>
 
                 {/* Step 1 */}
                 <div className="relative z-10 flex flex-col items-center text-center gap-4">
-                  <div className="w-14 h-14 rounded-full bg-[#122131] border border-outline/30 flex items-center justify-center text-xl font-bold text-primary mb-2 shadow-indigo-500/20 shadow-md">
+                  <div className="w-14 h-14 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] flex items-center justify-center text-xl font-bold text-indigo-600 dark:text-primary mb-2 shadow-indigo-500/20 shadow-md">
                     1
                   </div>
-                  <h3 className="text-xl font-semibold">Declare Your Destination</h3>
-                  <p className="text-sm text-on-surface-variant leading-relaxed max-w-xs">
+                  <h3 className="text-xl font-semibold text-[var(--text-main)]">Declare Your Destination</h3>
+                  <p className="text-sm text-[var(--text-muted)] leading-relaxed max-w-xs">
                     Specify the tech stack, dream engineering role, or a complex portfolio project you intend to build.
                   </p>
                 </div>
 
                 {/* Step 2 */}
                 <div className="relative z-10 flex flex-col items-center text-center gap-4">
-                  <div className="w-14 h-14 rounded-full bg-[#122131] border border-primary/50 flex items-center justify-center text-xl font-bold text-primary mb-2 shadow-lg glow-hover">
+                  <div className="w-14 h-14 rounded-full bg-[var(--bg-surface-subtle)] border border-indigo-500/50 flex items-center justify-center text-xl font-bold text-indigo-600 dark:text-primary mb-2 shadow-lg glow-hover">
                     2
                   </div>
-                  <h3 className="text-xl font-semibold">Synthesize Roadmap</h3>
-                  <p className="text-sm text-on-surface-variant leading-relaxed max-w-xs">
+                  <h3 className="text-xl font-semibold text-[var(--text-main)]">Synthesize Roadmap</h3>
+                  <p className="text-sm text-[var(--text-muted)] leading-relaxed max-w-xs">
                     Our AI parses prerequisites, reviews your active skills, and creates a logical, progressive step-by-step curriculum.
                   </p>
                 </div>
 
                 {/* Step 3 */}
                 <div className="relative z-10 flex flex-col items-center text-center gap-4">
-                  <div className="w-14 h-14 rounded-full bg-[#122131] border border-secondary/50 flex items-center justify-center text-xl font-bold text-secondary mb-2 shadow-lg ai-glow">
+                  <div className="w-14 h-14 rounded-full bg-[var(--bg-surface-subtle)] border border-emerald-500/50 flex items-center justify-center text-xl font-bold text-emerald-600 dark:text-secondary mb-2 shadow-lg ai-glow">
                     3
                   </div>
-                  <h3 className="text-xl font-semibold">Build Real Portfolios</h3>
-                  <p className="text-sm text-on-surface-variant leading-relaxed max-w-xs">
+                  <h3 className="text-xl font-semibold text-[var(--text-main)]">Build Real Portfolios</h3>
+                  <p className="text-sm text-[var(--text-muted)] leading-relaxed max-w-xs">
                     Unlock hands-on milestones, compile code under real-time guidance from the AI Mentor, and deploy working software.
                   </p>
                 </div>
+              </div>
+            </section>
+
+            {/* AI Mentor Section */}
+            <section id="ai-mentor" className="max-w-7xl mx-auto px-6 py-24 border-t border-[var(--border-color)] scroll-smooth relative">
+              <div className="text-center mb-16">
+                <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-mono font-bold uppercase tracking-wider mb-4">
+                  <Brain className="w-3.5 h-3.5 animate-pulse" /> Context-Aware Mentorship
+                </span>
+                <h2 className="text-3xl md:text-5xl font-bold text-[var(--text-main)] mb-4 tracking-tight">
+                  Meet Your ForgePath AI Mentor
+                </h2>
+                <p className="text-[var(--text-muted)] max-w-2xl mx-auto text-base leading-relaxed font-medium">
+                  Unlike generic AI chatbots, ForgePath AI Mentor stays grounded in your active learning roadmap, completed milestones, and target projects to provide personalized, real-time guidance.
+                </p>
+              </div>
+
+              {/* Main 2-column feature layout */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+                
+                {/* Left Column: Interactive Workflow Steps & Feature Highlights */}
+                <div className="lg:col-span-6 flex flex-col gap-6">
+                  
+                  <h3 className="text-xs font-mono uppercase tracking-widest text-indigo-700 dark:text-indigo-400 font-bold flex items-center gap-2">
+                    <Workflow className="w-4 h-4" /> Personalized Learning Flow
+                  </h3>
+
+                  {/* Flow Steps List */}
+                  <div className="flex flex-col gap-4">
+                    
+                    {/* Flow Step 1: Question Input (Voice or Text) */}
+                    <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex gap-4 items-start hover:border-indigo-500/30 transition-all">
+                      <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-400 flex items-center justify-center shrink-0 mt-0.5">
+                        <Mic className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className="text-sm font-bold text-[var(--text-main)]">1. Ask via Voice or Text</h4>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 font-bold">Mic Enabled</span>
+                        </div>
+                        <p className="text-xs text-[var(--text-muted)] leading-relaxed font-medium">
+                          Speak naturally using microphone voice input or type your message. Voice is automatically transcribed into your question in real time.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Flow Step 2: Contextual Awareness */}
+                    <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex gap-4 items-start hover:border-emerald-500/30 transition-all">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                        <Brain className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className="text-sm font-bold text-[var(--text-main)]">2. Roadmap &amp; Progress Context</h4>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20 font-bold">Active Sync</span>
+                        </div>
+                        <p className="text-xs text-[var(--text-muted)] leading-relaxed font-medium">
+                          The mentor continuously reads your target tech stack, active study focus, and project milestones to tailor every response specifically to you.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Flow Step 3: Personalized Response */}
+                    <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex gap-4 items-start hover:border-teal-500/30 transition-all">
+                      <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-700 dark:text-teal-400 flex items-center justify-center shrink-0 mt-0.5">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className="text-sm font-bold text-[var(--text-main)]">3. Tailored AI Answers</h4>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-teal-500/10 text-teal-700 dark:text-teal-300 border border-teal-500/20 font-bold">Gemini Powered</span>
+                        </div>
+                        <p className="text-xs text-[var(--text-muted)] leading-relaxed font-medium">
+                          Receive exact code snippets, architectural explanations, and debugging strategies matched precisely to your skill level.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Flow Step 4: Text-To-Speech / Speak Aloud */}
+                    <div className="glass-panel p-5 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex gap-4 items-start hover:border-purple-500/30 transition-all">
+                      <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-700 dark:text-purple-400 flex items-center justify-center shrink-0 mt-0.5">
+                        <Volume2 className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className="text-sm font-bold text-[var(--text-main)]">4. Read Aloud (Speak Aloud)</h4>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20 font-bold">TTS Active</span>
+                        </div>
+                        <p className="text-xs text-[var(--text-muted)] leading-relaxed font-medium">
+                          Listen to answers read aloud with integrated speech synthesis so you can focus on coding without constantly switching tabs.
+                        </p>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Right Column: Existing Project Asset Image Showcase */}
+                <div className="lg:col-span-6 flex flex-col gap-4">
+                  <div className="relative rounded-2xl overflow-hidden glass-panel border border-[var(--border-color)] bg-[var(--bg-surface)] shadow-2xl group">
+                    <div className="p-3 bg-[var(--bg-surface-subtle)] border-b border-[var(--border-color)] flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                        <div className="w-3 h-3 rounded-full bg-amber-500/80"></div>
+                        <div className="w-3 h-3 rounded-full bg-emerald-500/80"></div>
+                        <span className="text-[11px] font-mono text-[var(--text-muted)] ml-2 font-semibold">ForgePath AI Mentor Interface</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-bold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span> Live Context
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="relative overflow-hidden aspect-[4/3] bg-black/40">
+                      <img 
+                        src={chatMentorMockupImg} 
+                        alt="ForgePath AI Mentor Interactive Interface" 
+                        className="w-full h-full object-cover object-top transition-transform duration-700 group-hover:scale-102"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-surface)] via-transparent to-transparent pointer-events-none"></div>
+                    </div>
+
+                    {/* Interactive Feature Pill Badges Bar */}
+                    <div className="p-4 bg-[var(--bg-surface-subtle)] border-t border-[var(--border-color)] grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
+                      <div className="p-2.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] flex flex-col items-center gap-1">
+                        <Mic className="w-4 h-4 text-indigo-700 dark:text-indigo-400" />
+                        <span className="text-[10px] font-bold text-[var(--text-main)]">Voice Input</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] flex flex-col items-center gap-1">
+                        <Brain className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+                        <span className="text-[10px] font-bold text-[var(--text-main)]">Roadmap Context</span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-color)] col-span-2 sm:col-span-1 flex flex-col items-center gap-1">
+                        <Volume2 className="w-4 h-4 text-purple-700 dark:text-purple-400" />
+                        <span className="text-[10px] font-bold text-[var(--text-main)]">Speak Aloud</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </section>
 
@@ -1071,45 +1701,45 @@ export default function App() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
                 {/* Value 1 */}
-                <div className="glass-panel p-8 rounded-2xl flex flex-col gap-4 hover:border-white/20 transition-all">
-                  <div className="w-12 h-12 rounded-xl bg-primary-container/10 flex items-center justify-center text-primary border border-primary/10">
+                <div className="glass-panel p-8 rounded-2xl flex flex-col gap-4 border border-[var(--border-color)] hover:border-[var(--border-strong)] transition-all bg-[var(--bg-surface)]">
+                  <div className="w-12 h-12 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
                     <Layers className="w-6 h-6" />
                   </div>
-                  <h3 className="text-xl font-semibold">Know What to Study Next</h3>
-                  <p className="text-sm text-on-surface-variant leading-relaxed">
+                  <h3 className="text-xl font-semibold text-[var(--text-main)]">Know What to Study Next</h3>
+                  <p className="text-sm text-[var(--text-muted)] leading-relaxed">
                     Avoid direction clutter. We structure dependencies sequentially so you understand why and how skills build upon one another before investing time.
                   </p>
                 </div>
 
                 {/* Value 2 */}
-                <div className="glass-panel p-8 rounded-2xl flex flex-col gap-4 hover:border-white/20 transition-all">
-                  <div className="w-12 h-12 rounded-xl bg-[#2c3a4c]/50 flex items-center justify-center text-on-surface border border-white/5">
+                <div className="glass-panel p-8 rounded-2xl flex flex-col gap-4 border border-[var(--border-color)] hover:border-[var(--border-strong)] transition-all bg-[var(--bg-surface)]">
+                  <div className="w-12 h-12 rounded-xl bg-[var(--bg-surface-subtle)] flex items-center justify-center text-[var(--text-main)] border border-[var(--border-color)]">
                     <Workflow className="w-6 h-6" />
                   </div>
-                  <h3 className="text-xl font-semibold">Demystify Prerequisites</h3>
-                  <p className="text-sm text-on-surface-variant leading-relaxed">
+                  <h3 className="text-xl font-semibold text-[var(--text-main)]">Demystify Prerequisites</h3>
+                  <p className="text-sm text-[var(--text-muted)] leading-relaxed">
                     Gain insight into the computational structures behind every library. Explore detailed architectural requirements and dependencies.
                   </p>
                 </div>
 
                 {/* Value 3 */}
-                <div className="glass-panel p-8 rounded-2xl flex flex-col gap-4 hover:border-white/20 transition-all">
-                  <div className="w-12 h-12 rounded-xl bg-secondary-container/10 flex items-center justify-center text-secondary border border-secondary/10">
+                <div className="glass-panel p-8 rounded-2xl flex flex-col gap-4 border border-[var(--border-color)] hover:border-[var(--border-strong)] transition-all bg-[var(--bg-surface)]">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                     <Terminal className="w-6 h-6" />
                   </div>
-                  <h3 className="text-xl font-semibold">Production-Grade Assignments</h3>
-                  <p className="text-sm text-on-surface-variant leading-relaxed">
+                  <h3 className="text-xl font-semibold text-[var(--text-main)]">Production-Grade Assignments</h3>
+                  <p className="text-sm text-[var(--text-muted)] leading-relaxed">
                     Move past simple sandbox tutorials. ForgePath structures live projects that call external APIs, connect servers, and demonstrate high technical proficiency.
                   </p>
                 </div>
 
                 {/* Value 4 */}
-                <div className="glass-panel p-8 rounded-2xl flex flex-col gap-4 border-secondary/20 hover:border-secondary/30 transition-all ai-glow">
-                  <div className="w-12 h-12 rounded-xl bg-secondary-container/20 flex items-center justify-center text-secondary border border-secondary/20 animate-pulse">
+                <div className="glass-panel p-8 rounded-2xl flex flex-col gap-4 border border-teal-500/30 hover:border-teal-500/50 transition-all bg-[var(--bg-surface)] ai-glow">
+                  <div className="w-12 h-12 rounded-xl bg-teal-500/10 flex items-center justify-center text-teal-600 dark:text-teal-400 border border-teal-500/20 animate-pulse">
                     <Brain className="w-6 h-6" />
                   </div>
-                  <h3 className="text-xl font-semibold text-secondary">Interactive Forge Mentor</h3>
-                  <p className="text-sm text-on-surface-variant leading-relaxed">
+                  <h3 className="text-xl font-semibold text-teal-600 dark:text-teal-400">Interactive Forge Mentor</h3>
+                  <p className="text-sm text-[var(--text-muted)] leading-relaxed">
                     An elite conversational study companion that understands your current curriculum node, reviews project instructions, and unblocks logic bugs 24/7.
                   </p>
                 </div>
@@ -1119,28 +1749,35 @@ export default function App() {
 
             {/* Final CTA Banner */}
             <section className="max-w-7xl mx-auto px-6 py-16">
-              <div className="glass-panel rounded-2xl p-12 text-center flex flex-col items-center gap-6 relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none"></div>
-                <h2 className="text-3xl md:text-5xl font-bold tracking-tight">Stop wondering what to learn next.</h2>
-                <p className="text-sm text-on-surface-variant max-w-md leading-relaxed">
+              <div className="glass-panel rounded-2xl p-12 text-center flex flex-col items-center gap-6 relative overflow-hidden border border-[var(--border-color)] bg-[var(--bg-surface)]">
+                <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/5 to-transparent pointer-events-none"></div>
+                <h2 className="text-3xl md:text-5xl font-bold tracking-tight text-[var(--text-main)]">Stop wondering what to learn next.</h2>
+                <p className="text-sm text-[var(--text-muted)] max-w-md leading-relaxed">
                   Calibrate your timeline, map your engineering background, and claim your active career progression.
                 </p>
                 <button 
                   onClick={handleBuildMyPathClick}
-                  className="bg-[#494bd6] hover:bg-[#8083ff] text-white text-xs uppercase tracking-wider font-semibold py-4 px-10 rounded-lg shadow-lg hover:shadow-indigo-500/30 transition-all transform hover:scale-[1.02]"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase tracking-wider font-bold py-4 px-10 rounded-xl shadow-lg shadow-indigo-500/25 border border-indigo-400/30 transition-all cursor-pointer transform hover:scale-[1.02]"
                 >
                   Build My Path
                 </button>
               </div>
             </section>
           </main>
+
+          {/* Landing Page Footer */}
+          <Footer 
+            onStartOnboarding={handleBuildMyPathClick}
+            onOpenAuth={() => setCurrentView("auth")}
+            onOpenHowItWorks={() => setShowHowItWorksModal(true)}
+          />
         </div>
       )}
 
 
       {/* ONBOARDING FLOW: STEP 1 (What do you want to become?) */}
       {currentView === "onboarding_1" && (
-        <div className="relative z-10 flex flex-col min-h-screen bg-deep-space">
+        <div className="relative z-10 flex flex-col min-h-screen bg-[var(--bg-app)]/70 backdrop-blur-sm">
           {/* Progress Header */}
           <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-md">
             <span className="font-bold text-lg text-primary tracking-tight">ForgePath AI</span>
@@ -1148,9 +1785,9 @@ export default function App() {
               <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest">Step 1 of 4</span>
               <div className="flex gap-1.5">
                 <div className="w-6 h-1 rounded-full bg-primary shadow-sm shadow-primary/40"></div>
-                <div className="w-6 h-1 rounded-full bg-white/10"></div>
-                <div className="w-6 h-1 rounded-full bg-white/10"></div>
-                <div className="w-6 h-1 rounded-full bg-white/10"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
               </div>
               <ThemeToggle theme={theme} onToggle={toggleTheme} />
             </div>
@@ -1158,17 +1795,17 @@ export default function App() {
 
           <main className="flex-1 flex flex-col items-center justify-center px-6 max-w-3xl mx-auto w-full pb-24">
             <div className="text-center mb-10">
-              <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4 text-transparent bg-clip-text bg-gradient-to-b from-white to-on-surface-variant">
+              <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4 text-[var(--text-main)]">
                 What do you want to become?
               </h1>
-              <p className="text-on-surface-variant leading-relaxed max-w-xl mx-auto">
+              <p className="text-[var(--text-muted)] leading-relaxed max-w-xl mx-auto">
                 Tell us where you want to go. We'll map the optimal dependencies and logical curriculum layers to build your path.
               </p>
             </div>
 
             {/* Search Input Box */}
             <div className="w-full mb-8">
-              <div className="glass-panel rounded-xl transition-all duration-300 p-1.5 focus-within:border-secondary/50 focus-within:shadow-[0_0_20px_rgba(3,198,178,0.15)] border-white/10 bg-white/[0.02]">
+              <div className="glass-panel rounded-xl transition-all duration-300 p-1.5 focus-within:border-secondary/50 focus-within:shadow-[0_0_20px_rgba(3,198,178,0.15)] border-[var(--border-color)] bg-[var(--bg-surface)]/80">
                 <div className="flex items-center px-4 py-2">
                   <Brain className="text-secondary w-6 h-6 mr-3 opacity-80" />
                   <input 
@@ -1177,7 +1814,7 @@ export default function App() {
                     value={targetCareer}
                     onChange={(e) => setTargetCareer(e.target.value)}
                     placeholder="e.g., AI Automation Developer, Full-Stack Engineer..."
-                    className="w-full bg-transparent border-none text-on-surface font-sans text-xl md:text-2xl focus:ring-0 placeholder:text-on-surface-variant/40 placeholder:font-light py-2 outline-none"
+                    className="w-full bg-transparent border-none text-[var(--text-main)] font-sans text-xl md:text-2xl focus:ring-0 placeholder:text-[var(--text-muted)]/60 placeholder:font-light py-2 outline-none"
                   />
                 </div>
               </div>
@@ -1185,7 +1822,7 @@ export default function App() {
 
             {/* Example chips */}
             <div className="w-full text-center">
-              <p className="font-mono text-[10px] text-outline uppercase tracking-wider mb-4">Popular Career Paths</p>
+              <p className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-4">Popular Career Paths</p>
               <div className="flex flex-wrap justify-center gap-3">
                 {[
                   "AI Automation Developer",
@@ -1200,7 +1837,7 @@ export default function App() {
                     className={`px-4 py-2.5 rounded-full border text-xs font-semibold transition-all cursor-pointer ${
                       targetCareer === path 
                         ? "border-secondary bg-secondary/10 text-secondary shadow-[0_0_15px_rgba(3,198,178,0.15)]" 
-                        : "border-white/10 bg-[#122131]/30 text-on-surface-variant hover:text-on-surface hover:border-white/30"
+                        : "border-[var(--border-color)] bg-[var(--bg-surface)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:border-[var(--border-strong)]"
                     }`}
                   >
                     {path}
@@ -1211,10 +1848,10 @@ export default function App() {
           </main>
 
           {/* Fixed bottom footer */}
-          <footer className="p-6 border-t border-white/5 bg-[#051424]/40 flex justify-between items-center max-w-3xl mx-auto w-full rounded-t-xl">
+          <footer className="p-6 border-t border-[var(--border-color)] bg-[var(--bg-surface-subtle)]/80 backdrop-blur-md flex justify-between items-center max-w-3xl mx-auto w-full rounded-t-xl">
             <button 
               onClick={() => setCurrentView("home")}
-              className="text-xs font-bold text-on-surface-variant hover:text-on-surface tracking-wider uppercase flex items-center gap-1"
+              className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-main)] tracking-wider uppercase flex items-center gap-1 cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" /> Cancel
             </button>
@@ -1237,21 +1874,21 @@ export default function App() {
 
       {/* ONBOARDING FLOW: STEP 2 (What do you already know?) */}
       {currentView === "onboarding_2" && (
-        <div className="relative z-10 flex flex-col min-h-screen bg-deep-space">
+        <div className="relative z-10 flex flex-col min-h-screen bg-[var(--bg-app)]/70 backdrop-blur-sm">
           <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-md">
             <button 
               onClick={() => setCurrentView("onboarding_1")}
-              className="w-9 h-9 rounded-full glass-panel flex items-center justify-center hover:bg-white/5 transition-colors"
+              className="w-9 h-9 rounded-full glass-panel flex items-center justify-center hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
             >
-              <ChevronLeft className="w-5 h-5 text-on-surface-variant" />
+              <ChevronLeft className="w-5 h-5 text-[var(--text-muted)]" />
             </button>
             <div className="flex items-center gap-4">
               <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest">Step 2 of 4</span>
               <div className="flex gap-1.5">
-                <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
                 <div className="w-6 h-1 rounded-full bg-primary shadow-sm shadow-primary/40"></div>
-                <div className="w-6 h-1 rounded-full bg-white/10"></div>
-                <div className="w-6 h-1 rounded-full bg-white/10"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
               </div>
               <ThemeToggle theme={theme} onToggle={toggleTheme} />
             </div>
@@ -1259,8 +1896,8 @@ export default function App() {
 
           <main className="flex-1 flex flex-col items-center justify-center px-6 max-w-4xl mx-auto w-full pb-24">
             <div className="text-center mb-10">
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">What do you already know?</h1>
-              <p className="text-on-surface-variant leading-relaxed max-w-xl mx-auto">
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3 text-[var(--text-main)]">What do you already know?</h1>
+              <p className="text-[var(--text-muted)] leading-relaxed max-w-xl mx-auto">
                 Declaring your current stack helps ForgePath calibrate custom prerequisites. Mark everything you've already mastered.
               </p>
             </div>
@@ -1268,14 +1905,14 @@ export default function App() {
             {/* Search filter for skills */}
             <div className="w-full max-w-xl mb-8 relative">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <Search className="w-5 h-5 text-outline" />
+                <Search className="w-5 h-5 text-[var(--text-muted)]" />
               </div>
               <input 
                 type="text" 
                 value={skillSearchQuery}
                 onChange={(e) => setSkillSearchQuery(e.target.value)}
                 placeholder="Search skills, languages, libraries..."
-                className="w-full bg-[#0F172A]/80 border border-white/10 rounded-xl py-4.5 pl-12 pr-4 text-on-surface placeholder-outline focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/40 transition-all shadow-lg font-sans"
+                className="w-full bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl py-4.5 pl-12 pr-4 text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-secondary focus:ring-1 focus:ring-secondary/40 transition-all shadow-lg font-sans"
               />
             </div>
 
@@ -1291,12 +1928,12 @@ export default function App() {
                       onClick={() => toggleSkillSelection(skill)}
                       className={`p-4 rounded-xl flex flex-col items-center justify-center gap-3 text-center transition-all duration-300 border cursor-pointer ${
                         isSelected 
-                          ? "bg-primary/10 border-primary/80 shadow-[0_0_20px_rgba(99,102,241,0.15)]" 
-                          : "bg-[#0a0f1a]/50 border-white/5 hover:border-white/20 hover:bg-[#1c2b3c]/50"
+                          ? "bg-primary/10 border-primary/80 shadow-[0_0_20px_rgba(99,102,241,0.15)] text-[var(--text-main)]" 
+                          : "bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] text-[var(--text-main)]"
                       }`}
                     >
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
-                        isSelected ? "bg-primary/20 text-[#c0c1ff]" : "bg-white/5 text-on-surface-variant"
+                        isSelected ? "bg-primary/20 text-primary" : "bg-[var(--bg-surface-subtle)] text-[var(--text-muted)]"
                       }`}>
                         {skill === "Programming Fundamentals" && <Code className="w-5 h-5" />}
                         {skill === "JavaScript" && <Terminal className="w-5 h-5" />}
@@ -1318,10 +1955,10 @@ export default function App() {
             </div>
           </main>
 
-          <footer className="p-6 border-t border-white/5 bg-[#051424]/40 flex justify-between items-center max-w-4xl mx-auto w-full rounded-t-xl">
+          <footer className="p-6 border-t border-[var(--border-color)] bg-[var(--bg-surface-subtle)]/80 backdrop-blur-md flex justify-between items-center max-w-4xl mx-auto w-full rounded-t-xl">
             <button 
               onClick={() => setCurrentView("onboarding_1")}
-              className="text-xs font-bold text-on-surface-variant hover:text-on-surface tracking-wider uppercase flex items-center gap-1"
+              className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-main)] tracking-wider uppercase flex items-center gap-1 cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" /> Back
             </button>
@@ -1339,21 +1976,21 @@ export default function App() {
 
       {/* ONBOARDING FLOW: STEP 3 (Configure your engine) */}
       {currentView === "onboarding_3" && (
-        <div className="relative z-10 flex flex-col min-h-screen bg-deep-space">
+        <div className="relative z-10 flex flex-col min-h-screen bg-[var(--bg-app)]/70 backdrop-blur-sm">
           <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-md">
             <button 
               onClick={() => setCurrentView("onboarding_2")}
-              className="w-9 h-9 rounded-full glass-panel flex items-center justify-center hover:bg-white/5 transition-colors"
+              className="w-9 h-9 rounded-full glass-panel flex items-center justify-center hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
             >
-              <ChevronLeft className="w-5 h-5 text-on-surface-variant" />
+              <ChevronLeft className="w-5 h-5 text-[var(--text-muted)]" />
             </button>
             <div className="flex items-center gap-4">
               <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest">Step 3 of 4</span>
               <div className="flex gap-1.5">
-                <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
-                <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
                 <div className="w-6 h-1 rounded-full bg-primary shadow-sm shadow-primary/40"></div>
-                <div className="w-6 h-1 rounded-full bg-white/10"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
               </div>
               <ThemeToggle theme={theme} onToggle={toggleTheme} />
             </div>
@@ -1361,8 +1998,8 @@ export default function App() {
 
           <main className="flex-1 flex flex-col justify-center px-6 max-w-5xl mx-auto w-full pb-24">
             <div className="text-center mb-10">
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">Configure your engine</h1>
-              <p className="text-on-surface-variant leading-relaxed max-w-xl mx-auto">
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3 text-[var(--text-main)]">Configure your engine</h1>
+              <p className="text-[var(--text-muted)] leading-relaxed max-w-xl mx-auto">
                 Calibrate study schedules and your preferred instructional format so the AI Mentor communicates on your wavelength.
               </p>
             </div>
@@ -1371,11 +2008,11 @@ export default function App() {
               {/* Left Column: Time dedication */}
               <section className="lg:col-span-5 flex flex-col gap-4">
                 <div className="mb-2">
-                  <h2 className="text-xl font-bold text-on-surface flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[var(--text-main)] flex items-center gap-2">
                     <Clock className="text-primary w-5 h-5" />
                     Weekly Availability
                   </h2>
-                  <p className="text-sm text-outline mt-1">How many study hours can you dedicate?</p>
+                  <p className="text-sm text-[var(--text-muted)] mt-1">How many study hours can you dedicate?</p>
                 </div>
 
                 <div className="flex flex-col gap-3">
@@ -1390,16 +2027,16 @@ export default function App() {
                       <button
                         key={option.label}
                         onClick={() => setWeeklyHours(option.label)}
-                        className={`glass-card rounded-xl p-4 text-left flex items-start gap-4 transition-all duration-300 hover:border-white/20 cursor-pointer ${
-                          isSelected ? "border-primary bg-primary/5" : ""
+                        className={`rounded-xl p-4 text-left flex items-start gap-4 transition-all duration-300 border cursor-pointer ${
+                          isSelected ? "border-primary bg-primary/10" : "bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-[var(--border-strong)]"
                         }`}
                       >
-                        <div className="w-4.5 h-4.5 rounded-full border border-outline mt-1 flex items-center justify-center shrink-0">
+                        <div className="w-4.5 h-4.5 rounded-full border border-[var(--border-strong)] mt-1 flex items-center justify-center shrink-0">
                           {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-primary shadow-[0_0_8px_rgba(99,102,241,0.6)]"></div>}
                         </div>
                         <div className="flex flex-col">
-                          <span className="font-semibold text-sm">{option.label}</span>
-                          <span className="font-mono text-xs text-on-surface-variant mt-1">{option.desc}</span>
+                          <span className="font-semibold text-sm text-[var(--text-main)]">{option.label}</span>
+                          <span className="font-mono text-xs text-[var(--text-muted)] mt-1">{option.desc}</span>
                         </div>
                       </button>
                     );
@@ -1408,16 +2045,16 @@ export default function App() {
               </section>
 
               {/* Vertical border line indicator for desktop */}
-              <div className="hidden lg:block lg:col-span-1 border-r border-white/5 h-64 mx-auto"></div>
+              <div className="hidden lg:block lg:col-span-1 border-r border-[var(--border-color)] h-64 mx-auto"></div>
 
               {/* Right Column: Methodologies */}
               <section className="lg:col-span-5 flex flex-col gap-4">
                 <div className="mb-2">
-                  <h2 className="text-xl font-bold text-on-surface flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[var(--text-main)] flex items-center gap-2">
                     <Brain className="text-secondary w-5 h-5" />
                     Learning Methodology
                   </h2>
-                  <p className="text-sm text-outline mt-1">Which instructional formats do you prefer? (Select multiple)</p>
+                  <p className="text-sm text-[var(--text-muted)] mt-1">Which instructional formats do you prefer? (Select multiple)</p>
                 </div>
 
                 <div className="flex flex-col gap-3">
@@ -1433,18 +2070,18 @@ export default function App() {
                       <button
                         key={option.label}
                         onClick={() => toggleMethodologySelection(option.label)}
-                        className={`glass-card rounded-xl p-4 text-left flex items-center gap-4 transition-all duration-300 hover:border-white/20 cursor-pointer ${
-                          isSelected ? "border-secondary bg-secondary/5" : ""
+                        className={`rounded-xl p-4 text-left flex items-center gap-4 transition-all duration-300 border cursor-pointer ${
+                          isSelected ? "border-secondary bg-secondary/10" : "bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-[var(--border-strong)]"
                         }`}
                       >
                         <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                          isSelected ? "text-secondary" : "text-on-surface-variant opacity-70"
+                          isSelected ? "text-secondary" : "text-[var(--text-muted)]"
                         }`}>
                           {option.icon}
                         </div>
-                        <span className="text-sm font-semibold flex-1">{option.label}</span>
+                        <span className="text-sm font-semibold text-[var(--text-main)] flex-1">{option.label}</span>
                         <div className={`w-5 h-5 rounded border flex items-center justify-center transition-all ${
-                          isSelected ? "border-secondary bg-secondary/10 text-secondary" : "border-white/10"
+                          isSelected ? "border-secondary bg-secondary/20 text-secondary" : "border-[var(--border-color)]"
                         }`}>
                           {isSelected && <Check className="w-3.5 h-3.5" />}
                         </div>
@@ -1456,10 +2093,10 @@ export default function App() {
             </div>
           </main>
 
-          <footer className="p-6 border-t border-white/5 bg-[#051424]/40 flex justify-between items-center max-w-5xl mx-auto w-full rounded-t-xl">
+          <footer className="p-6 border-t border-[var(--border-color)] bg-[var(--bg-surface-subtle)]/80 backdrop-blur-md flex justify-between items-center max-w-5xl mx-auto w-full rounded-t-xl">
             <button 
               onClick={() => setCurrentView("onboarding_2")}
-              className="text-xs font-bold text-on-surface-variant hover:text-on-surface tracking-wider uppercase flex items-center gap-1"
+              className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-main)] tracking-wider uppercase flex items-center gap-1 cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" /> Back
             </button>
@@ -1477,20 +2114,20 @@ export default function App() {
 
       {/* ONBOARDING FLOW: STEP 4 (What do you want to build?) */}
       {currentView === "onboarding_4" && (
-        <div className="relative z-10 flex flex-col min-h-screen bg-deep-space">
+        <div className="relative z-10 flex flex-col min-h-screen bg-[var(--bg-app)]/70 backdrop-blur-sm">
           <header className="w-full flex justify-between items-center px-6 md:px-12 h-20 border-b border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-md">
             <button 
               onClick={() => setCurrentView("onboarding_3")}
-              className="w-9 h-9 rounded-full glass-panel flex items-center justify-center hover:bg-white/5 transition-colors"
+              className="w-9 h-9 rounded-full glass-panel flex items-center justify-center hover:bg-[var(--bg-hover)] transition-colors cursor-pointer"
             >
-              <ChevronLeft className="w-5 h-5 text-on-surface-variant" />
+              <ChevronLeft className="w-5 h-5 text-[var(--text-muted)]" />
             </button>
             <div className="flex items-center gap-4">
               <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-widest">Step 4 of 4</span>
               <div className="flex gap-1.5">
-                <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
-                <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
-                <div className="w-6 h-1 rounded-full bg-[#122131]"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
+                <div className="w-6 h-1 rounded-full bg-[var(--border-color)]"></div>
                 <div className="w-6 h-1 rounded-full bg-primary shadow-sm shadow-primary/40"></div>
               </div>
               <ThemeToggle theme={theme} onToggle={toggleTheme} />
@@ -1499,8 +2136,8 @@ export default function App() {
 
           <main className="flex-1 flex flex-col items-center justify-center px-6 max-w-4xl mx-auto w-full pb-24">
             <div className="text-center mb-10">
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3">What do you want to build?</h1>
-              <p className="text-on-surface-variant leading-relaxed max-w-xl mx-auto">
+              <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-3 text-[var(--text-main)]">What do you want to build?</h1>
+              <p className="text-[var(--text-muted)] leading-relaxed max-w-xl mx-auto">
                 Educational roadmaps achieve maximum persistence when paired with a target product output. Select your desired outcome.
               </p>
             </div>
@@ -1521,15 +2158,15 @@ export default function App() {
                     className={`p-5 rounded-xl text-left transition-all duration-300 border flex justify-between items-start gap-4 cursor-pointer ${
                       isSelected 
                         ? "bg-primary/10 border-primary/80 shadow-[0_0_20px_rgba(99,102,241,0.15)]" 
-                        : "bg-[#0a0f1a]/50 border-white/5 hover:border-white/20 hover:bg-[#1c2b3c]/50"
+                        : "bg-[var(--bg-surface)] border-[var(--border-color)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]"
                     }`}
                   >
                     <div>
-                      <h4 className="font-semibold text-sm text-white mb-1">{opt.label}</h4>
-                      <p className="text-xs text-on-surface-variant/80">{opt.desc}</p>
+                      <h4 className="font-semibold text-sm text-[var(--text-main)] mb-1">{opt.label}</h4>
+                      <p className="text-xs text-[var(--text-muted)]">{opt.desc}</p>
                     </div>
                     <div className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
-                      isSelected ? "border-primary bg-primary/20 text-[#c0c1ff]" : "border-white/10"
+                      isSelected ? "border-primary bg-primary/20 text-primary" : "border-[var(--border-color)]"
                     }`}>
                       {isSelected && <Check className="w-3.5 h-3.5" />}
                     </div>
@@ -1550,22 +2187,22 @@ export default function App() {
                   value={targetBuild.startsWith("Custom:") ? targetBuild.replace("Custom:", "") : ""}
                   onChange={(e) => setTargetBuild("Custom:" + e.target.value)}
                   placeholder="e.g., An AI-driven search engine for medical research notes..."
-                  className="w-full bg-[#0F172A] border border-white/10 rounded-xl px-4 py-4.5 text-on-surface placeholder:text-on-surface-variant/40 font-sans"
+                  className="w-full bg-[var(--bg-surface)] border border-[var(--border-color)] rounded-xl px-4 py-4.5 text-[var(--text-main)] placeholder:text-[var(--text-muted)]/60 font-sans focus:outline-none focus:border-secondary"
                 />
               </div>
             </div>
           </main>
 
-          <footer className="p-6 border-t border-white/5 bg-[#051424]/40 flex justify-between items-center max-w-4xl mx-auto w-full rounded-t-xl">
+          <footer className="p-6 border-t border-[var(--border-color)] bg-[var(--bg-surface-subtle)]/80 backdrop-blur-md flex justify-between items-center max-w-4xl mx-auto w-full rounded-t-xl">
             <button 
               onClick={() => setCurrentView("onboarding_3")}
-              className="text-xs font-bold text-on-surface-variant hover:text-on-surface tracking-wider uppercase flex items-center gap-1"
+              className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-main)] tracking-wider uppercase flex items-center gap-1 cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" /> Back
             </button>
             <button
               onClick={handleGenerateRoadmap}
-              className="bg-primary hover:bg-[#8083ff] text-on-primary py-3.5 px-8 rounded-lg font-bold text-xs uppercase tracking-wider shadow-lg hover:shadow-indigo-500/20 transition-all flex items-center gap-2 cursor-pointer"
+              className="bg-primary hover:bg-[#8083ff] text-white py-3.5 px-8 rounded-lg font-bold text-xs uppercase tracking-wider shadow-lg hover:shadow-indigo-500/20 transition-all flex items-center gap-2 cursor-pointer"
             >
               Generate My Path
               <Sparkles className="w-4 h-4" />
@@ -1577,12 +2214,13 @@ export default function App() {
 
       {/* VIEW: FORGING PATH LOADING SCREEN */}
       {currentView === "loading" && (
-        <div className="relative z-10 flex flex-col min-h-screen bg-[#05070a] justify-between p-6">
-          <header className="w-full flex justify-center pt-8">
+        <div className="relative z-10 flex flex-col min-h-screen bg-[var(--bg-app)]/70 backdrop-blur-sm justify-between p-6">
+          <header className="w-full flex justify-between items-center pt-4 px-4 max-w-5xl mx-auto">
             <div className="flex items-center gap-2.5 opacity-85">
               <Compass className="text-primary w-6 h-6 animate-spin-slow" />
               <span className="font-sans font-bold text-base text-primary tracking-widest uppercase">ForgePath AI</span>
             </div>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </header>
 
           <main className="flex-grow flex flex-col items-center justify-center max-w-xl mx-auto w-full">
@@ -1597,16 +2235,16 @@ export default function App() {
                 </div>
 
                 <div className="text-center">
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-on-surface mb-2 shimmer">
+                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-[var(--text-main)] mb-2 shimmer">
                     Forging your path...
                   </h1>
-                  <p className="text-sm text-on-surface-variant max-w-sm mx-auto leading-relaxed">
+                  <p className="text-sm text-[var(--text-muted)] max-w-sm mx-auto leading-relaxed">
                     Our n8n workflow engine is processing your goals, stack background, and time commitment to generate a custom roadmap.
                   </p>
                 </div>
 
                 {/* Loading stage card */}
-                <div className="mt-10 w-full glass-panel border-white/10 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+                <div className="mt-10 w-full glass-panel border-[var(--border-color)] bg-[var(--bg-surface)]/90 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
                   <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none"></div>
                   <div className="flex flex-col gap-4 text-center">
                     <span className="font-mono text-xs text-secondary tracking-wide transition-opacity duration-300">
@@ -1614,7 +2252,7 @@ export default function App() {
                     </span>
                     
                     {/* Horizontal progress indicators */}
-                    <div className="h-1.5 w-full bg-surface-variant rounded-full overflow-hidden relative">
+                    <div className="h-1.5 w-full bg-[var(--bg-surface-subtle)] rounded-full overflow-hidden relative border border-[var(--border-color)]">
                       <div 
                         className="h-full bg-gradient-to-r from-primary to-secondary rounded-full transition-all duration-1000"
                         style={{ width: `${((loadingStep + 1) / loadingPhrases.length) * 100}%` }}
@@ -1629,7 +2267,7 @@ export default function App() {
                 <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-4">
                   <AlertCircle className="w-8 h-8 text-red-400" />
                 </div>
-                <h2 className="text-2xl font-bold text-white mb-2">Roadmap Generation Issue</h2>
+                <h2 className="text-2xl font-bold text-[var(--text-main)] mb-2">Roadmap Generation Issue</h2>
                 <p className="text-xs text-red-200/80 max-w-md mx-auto mb-6 leading-relaxed bg-red-950/40 p-3 rounded-lg border border-red-500/20 font-mono">
                   {roadmapGenerationError}
                 </p>
@@ -1645,7 +2283,7 @@ export default function App() {
                       setRoadmapGenerationError(null);
                       setCurrentView("onboarding_4");
                     }}
-                    className="bg-white/10 hover:bg-white/15 text-on-surface py-3 px-4 rounded-lg font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                    className="bg-white/10 hover:bg-white/15 text-[var(--text-main)] py-3 px-4 rounded-lg font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer"
                   >
                     Back to Onboarding
                   </button>
@@ -1655,7 +2293,7 @@ export default function App() {
           </main>
 
           <footer className="w-full text-center pb-8">
-            <span className="font-mono text-[10px] text-outline uppercase tracking-wider">
+            <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
               ForgePath Core 2.4 online
             </span>
           </footer>
@@ -1781,13 +2419,13 @@ export default function App() {
                     <p className="text-[var(--text-muted)]">Here's what you should focus on next.</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="hidden md:block">
+                    <div className="hidden md:block desktop-only-toggle">
                       <ThemeToggle theme={theme} onToggle={toggleTheme} />
                     </div>
                     <button 
                       className="help-button" 
                       aria-label="Open roadmap help"
-                      onClick={() => alert("ForgePath uses coordinates and 3D spatial relationships to model your professional curriculum. Hover and drag to inspect connection edges.")}
+                      onClick={() => setShowHowItWorksModal(true)}
                     >
                       <HelpCircle size={18} /><span>How it works</span>
                     </button>
@@ -1921,7 +2559,12 @@ export default function App() {
                         portfolio: "ai_agents"
                       };
                       const targetId = idMap[selectedSkill.id] || selectedSkill.id;
-                      const matchMod = roadmap.modules.find(m => m.id === targetId);
+                      const matchMod = roadmap.modules.find(m => 
+                        m.id === targetId || 
+                        m.id === selectedSkill.id || 
+                        m.title.toLowerCase() === selectedSkill.name.toLowerCase() ||
+                        m.title.toLowerCase().includes(selectedSkill.name.toLowerCase().split(' ')[0])
+                      );
                       if (matchMod) {
                         await handleMarkModuleCompleted(matchMod.id);
                       } else {
@@ -1964,7 +2607,7 @@ export default function App() {
 
                 <div className="flex items-center gap-3 sm:gap-4">
                   <span className="hidden sm:inline font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-wider">
-                    Goal: {roadmap.pathName}
+                    Goal: {roadmap?.pathName || targetCareer || "Custom Path"}
                   </span>
                   <ThemeToggle theme={theme} onToggle={toggleTheme} />
                 </div>
@@ -1978,204 +2621,220 @@ export default function App() {
                 <div className="flex flex-col gap-8 h-full">
                   {!activeProjectFocus ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {/* Active Project Card */}
-                      <div className="glass-panel rounded-2xl p-6 border-l-4 border-l-secondary flex flex-col justify-between hover:translate-y-[-2px] transition-transform duration-300">
-                        <div>
-                          <div className="flex justify-between items-start mb-4">
-                            <div className="w-9 h-9 rounded-lg bg-secondary/15 flex items-center justify-center border border-secondary/20">
-                              <Layers className="text-secondary w-5 h-5" />
-                            </div>
-                            <span className="font-mono text-[9px] text-secondary bg-secondary/10 px-2 py-0.5 rounded-full uppercase">In Progress</span>
-                          </div>
-                          <h3 className="text-lg font-bold text-[var(--text-main)] mb-2">Weather Intelligence Dashboard</h3>
-                          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                            Integrate external meteorological APIs to pull, format, and render dynamic weather parameters in a glassmorphic dashboard interface.
-                          </p>
-                        </div>
-                        <div className="mt-6 pt-4 border-t border-[var(--border-color)] flex justify-between items-center">
-                          <span className="text-[10px] text-[var(--text-muted)] font-mono">3-5 Hours • APIs</span>
-                          <button 
-                            onClick={() => setActiveProjectFocus(true)}
-                            className="bg-primary hover:bg-[#8083ff] text-on-primary font-mono text-[10px] uppercase font-bold tracking-wider py-2 px-4 rounded-lg transition-all cursor-pointer"
-                          >
-                            Open Project
-                          </button>
-                        </div>
-                      </div>
+                      {PORTFOLIO_PROJECTS.map((proj) => {
+                        const isCompleted = completedProjects.includes(proj.id);
+                        const isUnlocked = proj.prerequisites.length === 0 || proj.prerequisites.every(reqId => completedProjects.includes(reqId));
+                        const prereqProjectName = proj.prerequisites.length > 0
+                          ? (PORTFOLIO_PROJECTS.find(p => p.id === proj.prerequisites[0])?.title || proj.prerequisites[0])
+                          : "";
 
-                      {/* Locked placeholder 1 */}
-                      <div className="glass-panel rounded-2xl p-6 opacity-60 flex flex-col justify-between">
-                        <div>
-                          <div className="flex justify-between items-start mb-4">
-                            <div className="w-9 h-9 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center">
-                              <Lock className="text-[var(--text-muted)] w-4 h-4" />
-                            </div>
-                            <span className="font-mono text-[9px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full uppercase">Locked</span>
-                          </div>
-                          <h3 className="text-lg font-bold text-[var(--text-main)] mb-2">Personal Portfolio AI</h3>
-                          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                            Build a customized agentic chat companion trained to represent your engineering credentials and experience.
-                          </p>
-                        </div>
-                        <div className="mt-6 pt-4 border-t border-[var(--border-color)] text-[10px] text-[var(--text-muted)] font-mono">
-                          Requires: Webhooks
-                        </div>
-                      </div>
-
-                      {/* Locked placeholder 2 */}
-                      <div className="glass-panel rounded-2xl p-6 opacity-60 flex flex-col justify-between">
-                        <div>
-                          <div className="flex justify-between items-start mb-4">
-                            <div className="w-9 h-9 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center">
-                              <Lock className="text-[var(--text-muted)] w-4 h-4" />
-                            </div>
-                            <span className="font-mono text-[9px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full uppercase">Locked</span>
-                          </div>
-                          <h3 className="text-lg font-bold text-[var(--text-main)] mb-2">Automated News Summarizer</h3>
-                          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                            Connect standard RSS pipelines to Gemini streaming models to automatically organize daily tech news summaries.
-                          </p>
-                        </div>
-                        <div className="mt-6 pt-4 border-t border-[var(--border-color)] text-[10px] text-[var(--text-muted)] font-mono">
-                          Requires: AI Agents
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Project Detailed Step-by-Step workspace */
-                    <div className="flex flex-col gap-6">
-                      <button 
-                        onClick={() => setActiveProjectFocus(false)}
-                        className="text-xs font-semibold text-primary hover:text-[#e1e0ff] transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        ← Back to Project Selector
-                      </button>
-
-                      {/* Breadcrumb row */}
-                      <nav className="flex items-center gap-2 text-xs text-[var(--text-muted)] mb-2">
-                        <span>Projects</span>
-                        <ChevronRight className="w-3 h-3" />
-                        <span className="text-[var(--text-main)] font-semibold">Weather Intelligence Dashboard</span>
-                      </nav>
-
-                      {/* Main workspace layout */}
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                        {/* Left column specifications */}
-                        <div className="lg:col-span-8 flex flex-col gap-6">
-                          
-                          {/* Overview card */}
-                          <div className="glass-panel rounded-2xl p-6 border-[var(--border-color)] relative overflow-hidden">
-                            <div className="absolute top-0 right-0 p-6 opacity-5">
-                              <Workflow className="w-32 h-32" />
-                            </div>
-                            <div className="relative z-10">
-                              <div className="flex flex-wrap gap-2 mb-3">
-                                <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[9px] text-secondary font-semibold font-mono uppercase">APIs</span>
-                                <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[9px] text-[var(--text-muted)] font-semibold font-mono uppercase">Beginner</span>
-                                <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[9px] text-[var(--text-muted)] font-semibold font-mono uppercase">3-5 Hours</span>
+                        if (isUnlocked) {
+                          return (
+                            <div 
+                              key={proj.id}
+                              className={`glass-panel rounded-2xl p-6 flex flex-col justify-between transition-transform duration-300 ${
+                                isCompleted ? "border-l-4 border-l-[#10b981]" : "border-l-4 border-l-secondary hover:translate-y-[-2px]"
+                              }`}
+                            >
+                              <div>
+                                <div className="flex justify-between items-start mb-4">
+                                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center border ${
+                                    isCompleted ? "bg-[#10b981]/15 border-[#10b981]/30" : "bg-secondary/15 border-secondary/20"
+                                  }`}>
+                                    {isCompleted ? <Check className="text-[#10b981] w-5 h-5" /> : <Layers className="text-secondary w-5 h-5" />}
+                                  </div>
+                                  {isCompleted ? (
+                                    <span className="font-mono text-[9px] text-[#10b981] bg-[#10b981]/15 border border-[#10b981]/30 px-2 py-0.5 rounded-full uppercase flex items-center gap-1 font-semibold">
+                                      ✓ Completed
+                                    </span>
+                                  ) : (
+                                    <span className="font-mono text-[9px] text-secondary bg-secondary/10 px-2 py-0.5 rounded-full uppercase font-semibold">
+                                      In Progress
+                                    </span>
+                                  )}
+                                </div>
+                                <h3 className="text-lg font-bold text-[var(--text-main)] mb-2">{proj.title}</h3>
+                                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                                  {proj.description}
+                                </p>
                               </div>
-                              <h1 className="text-3xl font-bold text-[var(--text-main)] mb-4">Weather Intelligence Dashboard</h1>
-                              <p className="text-sm text-[var(--text-muted)] leading-relaxed mb-6">
-                                Create an interactive visual interface that establishes network socket connections to weather servers to digest atmospheric information. Write logic loops to gracefully parse JSON elements and present structured insights to the user.
-                              </p>
-                              
-                              <div className="flex gap-4">
+                              <div className="mt-6 pt-4 border-t border-[var(--border-color)] flex justify-between items-center">
+                                <span className="text-[10px] text-[var(--text-muted)] font-mono">{proj.timeEstimate} • {proj.shortTag}</span>
                                 <button 
                                   onClick={() => {
-                                    setActiveTab("ai-mentor");
-                                    setActiveProjectFocus(false);
+                                    setSelectedProjectId(proj.id);
+                                    setActiveProjectFocus(true);
                                   }}
-                                  className="bg-[#494bd6] hover:bg-[#8083ff] text-white font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
+                                  className={`${
+                                    isCompleted 
+                                      ? "bg-[#10b981]/20 hover:bg-[#10b981]/30 text-[#10b981] border border-[#10b981]/40" 
+                                      : "bg-primary hover:bg-[#8083ff] text-on-primary"
+                                  } font-mono text-[10px] uppercase font-bold tracking-wider py-2 px-4 rounded-lg transition-all cursor-pointer`}
                                 >
-                                  Ask Mentor to start code
-                                </button>
-                                <button 
-                                  onClick={async () => {
-                                    const apisMod = roadmap.modules.find(m => m.id === "apis" || m.id === "apis_integration");
-                                    if (apisMod) {
-                                      await handleMarkModuleCompleted(apisMod.id);
-                                    } else if (selectedModule) {
-                                      await handleMarkModuleCompleted(selectedModule.id);
-                                    }
-                                  }}
-                                  className="border border-[#44e2cd]/30 hover:bg-[#44e2cd]/5 text-[#44e2cd] font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
-                                >
-                                  Mark as Completed
+                                  {isCompleted ? "View Details" : "Open Project"}
                                 </button>
                               </div>
                             </div>
-                          </div>
+                          );
+                        }
 
-                          {/* Problem and Bento grids */}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            
-                            {/* Problem block */}
-                            <div className="glass-panel p-6 rounded-2xl">
-                              <h3 className="text-md font-semibold text-[var(--text-main)] mb-4 flex items-center gap-2">
-                                <AlertCircle className="text-primary w-5 h-5" /> The Problem
-                              </h3>
+                        return (
+                          <div key={proj.id} className="glass-panel rounded-2xl p-6 opacity-60 flex flex-col justify-between border-l-4 border-l-transparent">
+                            <div>
+                              <div className="flex justify-between items-start mb-4">
+                                <div className="w-9 h-9 rounded-lg bg-[var(--bg-hover)] flex items-center justify-center">
+                                  <Lock className="text-[var(--text-muted)] w-4 h-4" />
+                                </div>
+                                <span className="font-mono text-[9px] text-[var(--text-muted)] bg-[var(--bg-hover)] px-2 py-0.5 rounded-full uppercase font-semibold">
+                                  Locked
+                                </span>
+                              </div>
+                              <h3 className="text-lg font-bold text-[var(--text-main)] mb-2">{proj.title}</h3>
                               <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                                Users need immediate access to structured meteorological data across diverse endpoints without dealing with complex developer tools, authentications, or rate limits.
+                                {proj.description}
                               </p>
                             </div>
+                            <div className="mt-6 pt-4 border-t border-[var(--border-color)] text-[10px] text-[var(--text-muted)] font-mono flex items-center gap-1.5">
+                              <Lock className="w-3 h-3 text-[var(--text-muted)]" />
+                              Requires: {prereqProjectName}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (() => {
+                    const activeProj = PORTFOLIO_PROJECTS.find(p => p.id === selectedProjectId) || PORTFOLIO_PROJECTS[0];
+                    const isProjCompleted = completedProjects.includes(activeProj.id);
 
-                            {/* Skills practiced */}
-                            <div className="glass-panel p-6 rounded-2xl">
-                              <h3 className="text-md font-semibold text-[var(--text-main)] mb-4 flex items-center gap-2">
-                                <Award className="text-secondary w-5 h-5" /> Key Features
-                              </h3>
-                              <ul className="text-xs text-[var(--text-muted)] space-y-2.5">
-                                <li className="flex items-center gap-2">
-                                  <Check className="w-4 h-4 text-secondary" /> Dynamic search query scanning
-                                </li>
-                                <li className="flex items-center gap-2">
-                                  <Check className="w-4 h-4 text-secondary" /> Graceful connection recovery
-                                </li>
-                                <li className="flex items-center gap-2">
-                                  <Check className="w-4 h-4 text-secondary" /> Dynamic temperature charts
-                                </li>
-                                <li className="flex items-center gap-2">
-                                  <Check className="w-4 h-4 text-secondary" /> Glassmorphic UI overlays
-                                </li>
-                              </ul>
+                    return (
+                      /* Project Detailed Step-by-Step workspace */
+                      <div className="flex flex-col gap-6">
+                        <button 
+                          onClick={() => setActiveProjectFocus(false)}
+                          className="text-xs font-semibold text-primary hover:text-[#e1e0ff] transition-colors flex items-center gap-1.5 cursor-pointer"
+                        >
+                          ← Back to Project Selector
+                        </button>
+
+                        {/* Breadcrumb row */}
+                        <nav className="flex items-center gap-2 text-xs text-[var(--text-muted)] mb-2">
+                          <span>Projects</span>
+                          <ChevronRight className="w-3 h-3" />
+                          <span className="text-[var(--text-main)] font-semibold">{activeProj.title}</span>
+                        </nav>
+
+                        {/* Main workspace layout */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                          {/* Left column specifications */}
+                          <div className="lg:col-span-8 flex flex-col gap-6">
+                            
+                            {/* Overview card */}
+                            <div className="glass-panel rounded-2xl p-6 border-[var(--border-color)] relative overflow-hidden">
+                              <div className="absolute top-0 right-0 p-6 opacity-5">
+                                <Workflow className="w-32 h-32" />
+                              </div>
+                              <div className="relative z-10">
+                                <div className="flex flex-wrap gap-2 mb-3">
+                                  <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[9px] text-secondary font-semibold font-mono uppercase">{activeProj.category}</span>
+                                  <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[9px] text-[var(--text-muted)] font-semibold font-mono uppercase">{activeProj.difficulty}</span>
+                                  <span className="px-2.5 py-1 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[9px] text-[var(--text-muted)] font-semibold font-mono uppercase">{activeProj.timeEstimate}</span>
+                                </div>
+                                <h1 className="text-3xl font-bold text-[var(--text-main)] mb-4">{activeProj.title}</h1>
+                                <p className="text-sm text-[var(--text-muted)] leading-relaxed mb-6">
+                                  {activeProj.description}
+                                </p>
+                                
+                                <div className="flex flex-wrap gap-4">
+                                  <button 
+                                    onClick={() => {
+                                      setActiveTab("ai-mentor");
+                                      setActiveProjectFocus(false);
+                                      setUserMsgText(`Review requirements and guide me through building the "${activeProj.title}" project.`);
+                                    }}
+                                    className="bg-[#494bd6] hover:bg-[#8083ff] text-white font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
+                                  >
+                                    Ask Mentor to start code
+                                  </button>
+
+                                  {isProjCompleted ? (
+                                    <button 
+                                      disabled
+                                      className="bg-[#10b981]/20 border border-[#10b981] text-[#10b981] font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider flex items-center gap-2 cursor-default"
+                                    >
+                                      <Check className="w-4 h-4" /> Completed
+                                    </button>
+                                  ) : (
+                                    <button 
+                                      onClick={() => handleMarkProjectCompleted(activeProj.id)}
+                                      className="border border-[#44e2cd]/30 hover:bg-[#44e2cd]/10 text-[#44e2cd] font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
+                                    >
+                                      Mark as Completed
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
                             </div>
 
+                            {/* Problem and Bento grids */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              
+                              {/* Problem block */}
+                              <div className="glass-panel p-6 rounded-2xl">
+                                <h3 className="text-md font-semibold text-[var(--text-main)] mb-4 flex items-center gap-2">
+                                  <AlertCircle className="text-primary w-5 h-5" /> The Problem
+                                </h3>
+                                <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                                  {activeProj.problem}
+                                </p>
+                              </div>
+
+                              {/* Skills practiced */}
+                              <div className="glass-panel p-6 rounded-2xl">
+                                <h3 className="text-md font-semibold text-[var(--text-main)] mb-4 flex items-center gap-2">
+                                  <Award className="text-secondary w-5 h-5" /> Key Features
+                                </h3>
+                                <ul className="text-xs text-[var(--text-muted)] space-y-2.5">
+                                  {activeProj.keyFeatures.map((feat, idx) => (
+                                    <li key={idx} className="flex items-center gap-2">
+                                      <Check className="w-4 h-4 text-secondary shrink-0" />
+                                      <span>{feat}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Right column sidebar project milestones */}
-                        <div className="lg:col-span-4">
-                          <div className="glass-panel rounded-2xl p-6 border-[var(--border-color)]">
-                            <h3 className="text-lg font-bold text-[var(--text-main)] mb-4 flex items-center justify-between">
-                              Project Steps
-                              <span className="text-[10px] font-mono text-secondary bg-secondary/10 px-2 py-0.5 rounded">6 Milestones</span>
-                            </h3>
+                          {/* Right column sidebar project milestones */}
+                          <div className="lg:col-span-4">
+                            <div className="glass-panel rounded-2xl p-6 border-[var(--border-color)]">
+                              <h3 className="text-lg font-bold text-[var(--text-main)] mb-4 flex items-center justify-between">
+                                Project Steps
+                                <span className="text-[10px] font-mono text-secondary bg-secondary/10 px-2 py-0.5 rounded">
+                                  {activeProj.milestones.length} Milestones
+                                </span>
+                              </h3>
 
-                            <div className="flex flex-col gap-4">
-                              {[
-                                { step: 1, title: "Understand the target API", desc: "Acquire API keys and construct curl sequences to verify endpoints." },
-                                { step: 2, title: "Mockup dynamic component tree", desc: "Build clean, modular visual frames for current weather and maps." },
-                                { step: 3, title: "Establish Fetch network sockets", desc: "Hook state functions to digest live meteorological telemetry." },
-                                { step: 4, title: "Clean and format payload variables", desc: "Verify coordinates, format metrics into metric/imperial structures." },
-                                { step: 5, title: "Incorporate crash handlers", desc: "Handle offline alerts and missing locations gracefully." },
-                                { step: 6, title: "Build and deploy production artifact", desc: "Prepare responsive static builds to demonstrate output." }
-                              ].map((item) => (
-                                <div key={item.step} className="flex gap-4 items-start relative">
-                                  <div className="w-8 h-8 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] flex items-center justify-center text-xs font-mono text-primary shrink-0">
-                                    {item.step}
+                              <div className="flex flex-col gap-4">
+                                {activeProj.milestones.map((item) => (
+                                  <div key={item.step} className="flex gap-4 items-start relative">
+                                    <div className="w-8 h-8 rounded-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] flex items-center justify-center text-xs font-mono text-primary shrink-0">
+                                      {item.step}
+                                    </div>
+                                    <div>
+                                      <h4 className="text-xs font-semibold text-[var(--text-main)]">{item.title}</h4>
+                                      <p className="text-[10px] text-[var(--text-muted)] mt-1">{item.desc}</p>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <h4 className="text-xs font-semibold text-[var(--text-main)]">{item.title}</h4>
-                                    <p className="text-[10px] text-[var(--text-muted)] mt-1">{item.desc}</p>
-                                  </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
 
@@ -2197,9 +2856,9 @@ export default function App() {
                           <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider block mb-1">Target Path</span>
                           <span className="text-sm font-semibold text-[var(--text-main)]">{roadmap.pathName}</span>
                           <div className="w-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] h-1.5 rounded-full mt-2 overflow-hidden">
-                            <div className="bg-[#494bd6] h-full rounded-full w-[45%]"></div>
+                            <div className="bg-[#494bd6] h-full rounded-full transition-all duration-500" style={{ width: `${roadmap.overallProgress}%` }}></div>
                           </div>
-                          <span className="text-[10px] text-[var(--text-muted)] mt-1 block text-right">45% Milestone Progress</span>
+                          <span className="text-[10px] text-[var(--text-muted)] mt-1 block text-right">{roadmap.overallProgress}% Overall Progress</span>
                         </div>
 
                         {/* active focus node */}
@@ -2207,7 +2866,9 @@ export default function App() {
                           <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider block mb-1">Active Study Focus</span>
                           <div className="bg-[var(--bg-surface-subtle)] rounded-lg p-3 border border-[var(--border-color)] flex items-center gap-2.5">
                             <Cpu className="text-secondary w-4.5 h-4.5" />
-                            <span className="text-xs font-semibold text-[var(--text-main)]">APIs &amp; Connectors</span>
+                            <span className="text-xs font-semibold text-[var(--text-main)]">
+                              {roadmap.modules.find(m => m.status === "In Progress")?.title || selectedModule?.title || "Active Module"}
+                            </span>
                           </div>
                         </div>
 
@@ -2449,71 +3110,61 @@ export default function App() {
               )}
 
 
-              {/* TAB 4: ANALYTICS */}
+              {/* TAB 4: ANALYTICS / PROGRESS */}
               {activeTab === "progress" && (
                 <div className="flex flex-col gap-8">
-                  {/* Detailed summary milestone graph */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                    {/* Progression tracking bento card */}
-                    <div className="lg:col-span-8 glass-panel rounded-2xl p-6 flex flex-col gap-6">
-                      <h3 className="text-lg font-bold text-[var(--text-main)] flex items-center gap-2">
-                        <TrendingUp className="text-primary w-5 h-5" /> Detailed Completion Rates
-                      </h3>
+                  {/* Real Learning Progress Chart Component backed by Firestore */}
+                  <LearningProgressChart 
+                    history={progressHistory} 
+                    loading={historyLoading} 
+                    roadmap={roadmap} 
+                  />
 
-                      <div className="space-y-4">
-                        {roadmap.modules.map((m, idx) => {
-                          let pct = 0;
-                          if (m.status === "Mastered") {
-                            pct = 100;
-                          } else if (m.status === "In Progress") {
-                            pct = 45;
-                          }
-                          return (
-                            <div key={idx} className="flex flex-col gap-1.5">
-                              <div className="flex justify-between items-center text-xs">
-                                <span className="font-semibold text-[var(--text-main)]">{m.title}</span>
-                                <span className="font-mono text-[var(--text-muted)]">{pct}% • {m.status}</span>
-                              </div>
-                              <div className="w-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] h-2 rounded-full overflow-hidden">
-                                <div 
-                                  className={`h-full rounded-full transition-all duration-1000 ${
-                                    m.status === "Mastered" ? "bg-[#10b981]" : "bg-primary"
-                                  }`}
-                                  style={{ width: `${pct}%` }}
-                                ></div>
+                  {/* Detailed summary milestone breakdown */}
+                  <div className="glass-panel rounded-2xl p-6 flex flex-col gap-6">
+                    <h3 className="text-lg font-bold text-[var(--text-main)] flex items-center gap-2">
+                      <TrendingUp className="text-primary w-5 h-5" /> Detailed Module Completion Rates
+                    </h3>
+
+                    <div className="space-y-4">
+                      {(roadmap?.modules || []).map((m, idx) => {
+                        let pct = 0;
+                        if (m.status === "Mastered") {
+                          pct = 100;
+                        } else if (m.status === "In Progress") {
+                          pct = 0;
+                        }
+                        return (
+                          <div key={idx} className="flex flex-col gap-2 p-3 rounded-xl bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] transition-colors">
+                            <div className="flex items-center justify-between gap-3 text-xs">
+                              <span className="font-semibold text-[var(--text-main)] truncate" title={m.title}>
+                                {m.title}
+                              </span>
+                              <div className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+                                <span className="font-mono font-bold text-[var(--text-main)] text-xs">{pct}%</span>
+                                <span className="text-[var(--text-muted)] opacity-30">•</span>
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold tracking-wide ${
+                                  m.status === "Mastered"
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                    : m.status === "In Progress"
+                                    ? "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20"
+                                    : "bg-gray-500/10 text-[var(--text-muted)] border border-gray-500/20"
+                                }`}>
+                                  {m.status}
+                                </span>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Right column weekly activity graph */}
-                    <div className="lg:col-span-4 glass-panel rounded-2xl p-6">
-                      <h3 className="text-lg font-bold text-[var(--text-main)] mb-4 flex items-center gap-2">
-                        <Flame className="text-secondary w-5 h-5" /> Study Momentum
-                      </h3>
-
-                      {/* Fake weekly activity bar chart */}
-                      <div className="h-44 w-full flex items-end gap-1.5 mb-4 relative pt-6 border-b border-[var(--border-color)]">
-                        <div className="absolute inset-0 border-b border-[var(--border-color)] z-0" style={{ top: "25%" }}></div>
-                        <div className="absolute inset-0 border-b border-[var(--border-color)] z-0" style={{ top: "50%" }}></div>
-                        <div className="absolute inset-0 border-b border-[var(--border-color)] z-0" style={{ top: "75%" }}></div>
-
-                        <div className="flex-1 bg-primary/20 rounded-t-sm z-10" style={{ height: "20%" }}></div>
-                        <div className="flex-1 bg-primary/20 rounded-t-sm z-10" style={{ height: "40%" }}></div>
-                        <div className="flex-1 bg-[#44e2cd]/60 rounded-t-sm z-10 shadow-[0_0_10px_rgba(68,226,205,0.3)]" style={{ height: "80%" }}></div>
-                        <div className="flex-1 bg-primary/30 rounded-t-sm z-10" style={{ height: "55%" }}></div>
-                        <div className="flex-1 bg-[#10b981]/80 rounded-t-sm z-10 shadow-[0_0_10px_rgba(16,185,129,0.3)]" style={{ height: "95%" }}></div>
-                        <div className="flex-1 bg-[#10b981]/40 rounded-t-sm z-10" style={{ height: "45%" }}></div>
-                      </div>
-
-                      <div className="flex justify-between text-[10px] font-mono text-[var(--text-muted)]">
-                        <span>Mon</span>
-                        <span>Wed</span>
-                        <span>Fri</span>
-                        <span>Sun</span>
-                      </div>
+                            <div className="w-full bg-[var(--bg-surface)] border border-[var(--border-color)] h-2 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all duration-1000 ${
+                                  m.status === "Mastered" ? "bg-[#10b981]" : "bg-primary"
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -2583,8 +3234,13 @@ export default function App() {
                         <label className="text-xs font-mono text-[var(--text-muted)] uppercase tracking-wider block mb-2">Target Stack &amp; Goal</label>
                         <input 
                           type="text" 
-                          value={roadmap.pathName}
-                          onChange={(e) => setRoadmap((prev) => prev ? { ...prev, pathName: e.target.value } : null)}
+                          value={roadmap ? roadmap.pathName : targetCareer}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setTargetCareer(val);
+                            setRoadmap((prev) => prev ? { ...prev, pathName: val } : null);
+                          }}
+                          placeholder="e.g. AI Automation Developer, Full-Stack Engineer..."
                           className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl px-4 py-3 text-xs text-[var(--text-main)] focus:outline-none focus:border-primary"
                         />
                       </div>
@@ -2605,39 +3261,14 @@ export default function App() {
 
                       <div className="pt-4 border-t border-white/5 flex flex-wrap gap-4">
                         <button 
-                          onClick={async () => {
-                            if (user && roadmap) {
-                              try {
-                                await saveRoadmap(user.uid, roadmap);
-                                setNotice("Curriculum settings calibrated and persisted successfully.");
-                                setTimeout(() => setNotice(""), 3000);
-                              } catch (err) {
-                                console.error("Error saving calibration to Firestore:", err);
-                              }
-                            }
-                          }}
-                          className="bg-primary hover:bg-[#8083ff] text-on-primary font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
+                          onClick={handleSaveSettings}
+                          disabled={isSavingSettings}
+                          className="bg-primary hover:bg-[#8083ff] disabled:opacity-50 text-on-primary font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
                         >
-                          Save Configurations
+                          {isSavingSettings ? "Saving..." : "Save Configurations"}
                         </button>
                         <button 
-                          onClick={async () => {
-                            if (user) {
-                              if (confirm("Are you sure you want to completely reset your active roadmap? This will delete all your custom module configurations and progress in the Firestore database.")) {
-                                try {
-                                  await deleteRoadmap(user.uid);
-                                  await updateOnboardingStatus(false);
-                                  setRoadmap(null);
-                                  setSelectedModule(null);
-                                  setCurrentView("onboarding_1");
-                                } catch (err) {
-                                  console.error("Error deleting roadmap from Firestore:", err);
-                                }
-                              }
-                            } else {
-                              setCurrentView("onboarding_1");
-                            }
-                          }}
+                          onClick={handleResetAndBuildNewPath}
                           className="border border-[#f43f5e]/40 hover:bg-[#f43f5e]/10 text-rose-600 dark:text-[#f43f5e] font-mono text-[10px] font-bold py-3.5 px-6 rounded-lg uppercase tracking-wider transition-all cursor-pointer"
                         >
                           Reset &amp; Build New Path
@@ -2657,6 +3288,11 @@ export default function App() {
               )}
 
             </div>
+            {notice && (
+              <div className="toast" role="status">
+                <Check size={14} />{notice}
+              </div>
+            )}
           </main>
         )
       }
@@ -2668,8 +3304,61 @@ export default function App() {
         <AuthPage 
           onBackToHome={() => setCurrentView("home")}
           onAuthSuccess={handleAuthSuccess}
+          theme={theme}
+          onToggleTheme={toggleTheme}
         />
       )}
+
+      {/* RESET ROADMAP CONFIRMATION MODAL */}
+      {showResetConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="glass-panel border-red-500/30 bg-[var(--bg-surface)] rounded-2xl p-6 md:p-8 max-w-md w-full shadow-2xl relative overflow-hidden flex flex-col gap-5">
+            <button 
+              onClick={() => setShowResetConfirmModal(false)}
+              className="absolute top-4 right-4 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-500 shrink-0">
+                <AlertTriangle size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-[var(--text-main)]">Reset &amp; Build New Path?</h3>
+                <p className="text-xs text-[var(--text-muted)] font-mono">Platform Calibration Reset</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed bg-[var(--bg-surface-subtle)] p-3.5 rounded-xl border border-[var(--border-color)]">
+              Are you sure you want to create a new learning path? This will reset your current active roadmap and skill progress so you can configure new goals and build a fresh custom path. Your account and saved project notes will be preserved.
+            </p>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowResetConfirmModal(false)}
+                disabled={isResettingPath}
+                className="px-4 py-2.5 rounded-lg border border-[var(--border-color)] text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeResetPath}
+                disabled={isResettingPath}
+                className="px-5 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-mono font-bold uppercase tracking-wider shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              >
+                {isResettingPath ? "Resetting Path..." : "Yes, Reset & Start New"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HOW IT WORKS MODAL OVERLAY */}
+      <HowItWorksModal 
+        isOpen={showHowItWorksModal} 
+        onClose={() => setShowHowItWorksModal(false)} 
+      />
 
     </div>
   );

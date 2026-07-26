@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useAuth } from "../lib/AuthContext";
 import { ThemeToggle } from "./ThemeToggle";
+import { LiveBackground } from "./LiveBackground";
 import { 
   Compass, 
   Lock, 
@@ -128,13 +129,14 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
   };
 
   return (
-    <div className="relative z-10 flex-grow flex items-center justify-center px-4 py-16 md:py-24">
+    <div className="relative min-h-screen w-full flex-grow flex items-center justify-center px-4 py-16 md:py-24 bg-[var(--bg-app)] overflow-hidden">
+      <LiveBackground theme={theme} />
       {onToggleTheme && (
         <div className="absolute top-6 right-6 z-20">
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </div>
       )}
-      <div className="w-full max-w-md">
+      <div className="relative z-10 w-full max-w-md">
         
         {/* Logo and Greeting */}
         <div className="text-center mb-8">
@@ -161,8 +163,8 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
           
           {/* Error Banner */}
           {error && !isUnauthorizedDomain && (
-            <div className="mb-5 p-3.5 rounded-xl border border-red-500/20 bg-red-500/10 text-red-200 text-xs flex gap-2.5 items-start">
-              <AlertCircle className="w-4.5 h-4.5 shrink-0 text-red-400 mt-0.5" />
+            <div className="mb-5 p-3.5 rounded-xl border border-red-500/30 bg-red-500/10 text-red-800 dark:text-red-200 text-xs flex gap-2.5 items-start font-medium">
+              <AlertCircle className="w-4.5 h-4.5 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
@@ -171,18 +173,18 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
           {isUnauthorizedDomain && (
             <div className="mb-5 p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-xs flex flex-col gap-3 backdrop-blur-sm shadow-xl">
               <div className="flex gap-2 items-start">
-                <AlertCircle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
+                <AlertCircle className="w-5 h-5 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
                 <div>
-                  <p className="font-bold text-rose-200">Whitelist This Domain in Firebase</p>
-                  <p className="text-rose-200/80 leading-relaxed mt-1">
+                  <p className="font-bold text-rose-900 dark:text-rose-200">Whitelist This Domain in Firebase</p>
+                  <p className="text-rose-800/90 dark:text-rose-200/80 leading-relaxed mt-1">
                     Firebase Authentication restricts authorization request sources. You must whitelist your current preview domain in your Firebase console.
                   </p>
                 </div>
               </div>
               
-              <div className="flex flex-col gap-1.5 bg-[#070b13] border border-white/5 rounded-lg p-2.5 mt-1 font-mono">
+              <div className="flex flex-col gap-1.5 bg-slate-900 border border-slate-700/50 rounded-lg p-2.5 mt-1 font-mono text-slate-100">
                 <div className="flex justify-between items-center text-[9px]">
-                  <span className="text-outline">TARGET HOSTNAME:</span>
+                  <span className="text-slate-400">TARGET HOSTNAME:</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -190,7 +192,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
                       setCopied(true);
                       setTimeout(() => setCopied(false), 2000);
                     }}
-                    className="flex items-center gap-1 text-primary hover:text-white transition-colors cursor-pointer"
+                    className="flex items-center gap-1 text-indigo-400 hover:text-white transition-colors cursor-pointer"
                   >
                     {copied ? (
                       <>
@@ -208,13 +210,13 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
                 <div className="text-[11px] text-white truncate select-all">{window.location.hostname}</div>
               </div>
 
-              <div className="text-[11px] text-on-surface-variant/90 leading-relaxed">
-                <p className="font-bold text-white mb-1.5">Whitelist Instructions:</p>
-                <ol className="list-decimal pl-4 space-y-1 text-on-surface-variant/80">
-                  <li>Open the <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className="text-[#8083ff] hover:underline font-bold">Firebase Console</a></li>
-                  <li>Go to <span className="text-white font-medium">Authentication</span> &gt; <span className="text-white font-medium">Settings</span> tab</li>
-                  <li>Click <span className="text-white font-medium">Authorized Domains</span> in the side/list options</li>
-                  <li>Click <span className="text-white font-medium">Add domain</span> and paste the hostname above</li>
+              <div className="text-[11px] text-[var(--text-main)] leading-relaxed">
+                <p className="font-bold text-[var(--text-main)] mb-1.5">Whitelist Instructions:</p>
+                <ol className="list-decimal pl-4 space-y-1 text-[var(--text-muted)]">
+                  <li>Open the <a href="https://console.firebase.google.com" target="_blank" rel="noreferrer" className="text-indigo-600 dark:text-[#8083ff] hover:underline font-bold">Firebase Console</a></li>
+                  <li>Go to <span className="font-medium text-[var(--text-main)]">Authentication</span> &gt; <span className="font-medium text-[var(--text-main)]">Settings</span> tab</li>
+                  <li>Click <span className="font-medium text-[var(--text-main)]">Authorized Domains</span> in the side/list options</li>
+                  <li>Click <span className="font-medium text-[var(--text-main)]">Add domain</span> and paste the hostname above</li>
                   <li>Refresh this page and re-initiate login!</li>
                 </ol>
               </div>
@@ -223,8 +225,8 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
 
           {/* Success Banner */}
           {success && (
-            <div className="mb-5 p-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-200 text-xs flex gap-2.5 items-start">
-              <CheckCircle className="w-4.5 h-4.5 shrink-0 text-emerald-400 mt-0.5" />
+            <div className="mb-5 p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200 text-xs flex gap-2.5 items-start font-medium">
+              <CheckCircle className="w-4.5 h-4.5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
               <span>{success}</span>
             </div>
           )}
@@ -233,9 +235,9 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
           <form onSubmit={handleEmailAuth} className="flex flex-col gap-4">
             {isSignUp && (
               <div className="flex flex-col gap-1.5">
-                <label className="font-mono text-[9px] text-primary uppercase tracking-wider">Full Name</label>
+                <label className="font-mono text-[9px] text-indigo-600 dark:text-primary uppercase tracking-wider font-bold">Full Name</label>
                 <div className="relative">
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40" />
+                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                   <input
                     type="text"
                     required
@@ -243,16 +245,16 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Alex Smith"
                     disabled={loading}
-                    className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-4 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)]/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
+                    className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-4 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
                   />
                 </div>
               </div>
             )}
 
             <div className="flex flex-col gap-1.5">
-              <label className="font-mono text-[9px] text-primary uppercase tracking-wider">Email Address</label>
+              <label className="font-mono text-[9px] text-indigo-600 dark:text-primary uppercase tracking-wider font-bold">Email Address</label>
               <div className="relative">
-                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40" />
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                 <input
                   type="email"
                   required
@@ -260,15 +262,15 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="alex@forgepath.ai"
                   disabled={loading}
-                  className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-4 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)]/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
+                  className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-4 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
                 />
               </div>
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="font-mono text-[9px] text-primary uppercase tracking-wider">Password</label>
+              <label className="font-mono text-[9px] text-indigo-600 dark:text-primary uppercase tracking-wider font-bold">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                 <input
                   type={showPassword ? "text" : "password"}
                   required
@@ -276,12 +278,12 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   disabled={loading}
-                  className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-10 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)]/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
+                  className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-10 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant/40 hover:text-[var(--text-main)] transition-colors cursor-pointer"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -290,9 +292,9 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
 
             {isSignUp && (
               <div className="flex flex-col gap-1.5">
-                <label className="font-mono text-[9px] text-primary uppercase tracking-wider">Confirm Password</label>
+                <label className="font-mono text-[9px] text-indigo-600 dark:text-primary uppercase tracking-wider font-bold">Confirm Password</label>
                 <div className="relative">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-on-surface-variant/40" />
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                   <input
                     type="password"
                     required
@@ -300,7 +302,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="••••••••"
                     disabled={loading}
-                    className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-4 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)]/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
+                    className="w-full bg-[var(--bg-input)] border border-[var(--border-color)] rounded-xl py-3 pl-10 pr-4 text-sm text-[var(--text-main)] placeholder-[var(--text-muted)] focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all font-sans"
                   />
                 </div>
               </div>
@@ -325,9 +327,9 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
 
           {/* Social Divider */}
           <div className="my-6 flex items-center gap-3">
-            <div className="flex-grow h-[1px] bg-white/5"></div>
-            <span className="font-mono text-[8px] text-on-surface-variant/50 uppercase tracking-widest shrink-0">Or proceed with</span>
-            <div className="flex-grow h-[1px] bg-white/5"></div>
+            <div className="flex-grow h-[1px] bg-[var(--border-color)]"></div>
+            <span className="font-mono text-[8px] text-[var(--text-muted)] uppercase tracking-widest shrink-0 font-bold">Or proceed with</span>
+            <div className="flex-grow h-[1px] bg-[var(--border-color)]"></div>
           </div>
 
           {/* Google Button */}
@@ -335,7 +337,7 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
             type="button"
             onClick={handleGoogleAuth}
             disabled={loading}
-            className="w-full bg-[var(--bg-hover)] hover:bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] text-[var(--text-main)] rounded-xl py-3 text-xs font-semibold flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+            className="w-full bg-[var(--bg-surface-subtle)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] text-[var(--text-main)] rounded-xl py-3 text-xs font-semibold flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
           >
             {/* Real SVG Google Icon */}
             <svg className="w-4.5 h-4.5 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

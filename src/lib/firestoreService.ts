@@ -7,7 +7,10 @@ import {
   updateDoc, 
   serverTimestamp 
 } from "./firebase";
-import { getDocFromServer, deleteDoc } from "firebase/firestore";
+import { 
+  getDocFromServer, 
+  deleteDoc 
+} from "firebase/firestore";
 import { Roadmap } from "../types";
 import { normalizeN8nRoadmap } from "../utils";
 
@@ -81,9 +84,22 @@ export interface OnboardingData {
 
 export interface ProgressData {
   completedSkills: string[];
+  completedProjects?: string[];
   currentSkill: string;
   completionPercentage: number;
+  history?: ProgressHistoryItem[];
   updatedAt?: any;
+}
+
+export interface ProgressHistoryItem {
+  id?: string;
+  completionPercentage: number;
+  completedSkillsCount: number;
+  totalSkills: number;
+  completedSkills?: string[];
+  currentSkill?: string;
+  timestamp?: any;
+  createdAt?: any;
 }
 
 // ---------------------------------------------------------
@@ -144,6 +160,17 @@ export async function saveRoadmap(uid: string, roadmap: Roadmap): Promise<void> 
 
 export async function getRoadmap(uid: string): Promise<Roadmap | null> {
   try {
+    // Helper to check if object is already a fully formed Roadmap with modules
+    const isAlreadyValidRoadmap = (obj: any): boolean => {
+      return (
+        obj &&
+        typeof obj === "object" &&
+        Array.isArray(obj.modules) &&
+        obj.modules.length > 0 &&
+        obj.modules[0].status !== undefined
+      );
+    };
+
     // 1. Check if n8n saved document directly under user's UID: users/{uid}/roadmap/{uid}
     const docRefUid = doc(db, "users", uid, "roadmap", uid);
     const snapUid = await getDoc(docRefUid);
@@ -152,10 +179,14 @@ export async function getRoadmap(uid: string): Promise<Roadmap | null> {
       const rawObj = data.roadmapData || data;
       let parsedRoadmap: Roadmap | null = null;
       if (rawObj && (rawObj.modules || rawObj.skills || rawObj.roadmapTitle)) {
-        try {
-          parsedRoadmap = normalizeN8nRoadmap(rawObj, rawObj.pathName || rawObj.roadmapTitle || "AI Path", "");
-        } catch (e) {
+        if (isAlreadyValidRoadmap(rawObj)) {
           parsedRoadmap = rawObj as Roadmap;
+        } else {
+          try {
+            parsedRoadmap = normalizeN8nRoadmap(rawObj, rawObj.pathName || rawObj.roadmapTitle || "AI Path", "");
+          } catch (e) {
+            parsedRoadmap = rawObj as Roadmap;
+          }
         }
       }
 
@@ -178,6 +209,9 @@ export async function getRoadmap(uid: string): Promise<Roadmap | null> {
       const data = snapData.data();
       const rawObj = data.roadmapData || data;
       if (rawObj && (rawObj.modules || rawObj.skills)) {
+        if (isAlreadyValidRoadmap(rawObj)) {
+          return rawObj as Roadmap;
+        }
         try {
           return normalizeN8nRoadmap(rawObj, rawObj.pathName || rawObj.roadmapTitle || "AI Path", "");
         } catch (e) {
@@ -194,10 +228,14 @@ export async function getRoadmap(uid: string): Promise<Roadmap | null> {
       const rawObj = data.roadmapData || data;
       if (rawObj && (rawObj.modules || rawObj.skills)) {
         let parsedRoadmap: Roadmap | null = null;
-        try {
-          parsedRoadmap = normalizeN8nRoadmap(rawObj, rawObj.pathName || rawObj.roadmapTitle || "AI Path", "");
-        } catch (e) {
+        if (isAlreadyValidRoadmap(rawObj)) {
           parsedRoadmap = rawObj as Roadmap;
+        } else {
+          try {
+            parsedRoadmap = normalizeN8nRoadmap(rawObj, rawObj.pathName || rawObj.roadmapTitle || "AI Path", "");
+          } catch (e) {
+            parsedRoadmap = rawObj as Roadmap;
+          }
         }
         if (parsedRoadmap) {
           await saveRoadmap(uid, parsedRoadmap);
@@ -229,14 +267,14 @@ export async function deleteRoadmap(uid: string): Promise<void> {
 // ---------------------------------------------------------
 // Progress CRUD Service
 // ---------------------------------------------------------
-export async function saveProgress(uid: string, progress: ProgressData): Promise<void> {
+export async function saveProgress(uid: string, progress: Partial<ProgressData>): Promise<void> {
   const path = `users/${uid}/progress/data`;
   try {
     const docRef = doc(db, "users", uid, "progress", "data");
     await setDoc(docRef, {
       ...progress,
       updatedAt: serverTimestamp()
-    });
+    }, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -254,5 +292,85 @@ export async function getProgress(uid: string): Promise<ProgressData | null> {
   } catch (err) {
     console.warn(`Could not read progress data for user ${uid}:`, err);
     return null;
+  }
+}
+
+// ---------------------------------------------------------
+// Progress History CRUD Service
+// ---------------------------------------------------------
+
+export async function addProgressSnapshot(
+  uid: string,
+  snapshot: {
+    completionPercentage: number;
+    completedSkillsCount: number;
+    totalSkills: number;
+    completedSkills?: string[];
+    currentSkill?: string;
+  },
+  force: boolean = false
+): Promise<boolean> {
+  const path = `users/${uid}/progress/data`;
+  try {
+    const currentProgress = await getProgress(uid);
+    const existingHistory: ProgressHistoryItem[] = Array.isArray(currentProgress?.history)
+      ? currentProgress!.history!
+      : [];
+
+    if (!force && existingHistory.length > 0) {
+      const lastItem = existingHistory[existingHistory.length - 1];
+      if (
+        lastItem.completionPercentage === snapshot.completionPercentage &&
+        lastItem.completedSkillsCount === snapshot.completedSkillsCount &&
+        lastItem.totalSkills === snapshot.totalSkills
+      ) {
+        // Unchanged progress state — prevent duplicate snapshot creation
+        return false;
+      }
+    }
+
+    const newItem: ProgressHistoryItem = {
+      id: `hist_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      ...snapshot,
+      timestamp: new Date().toISOString()
+    };
+
+    const updatedHistory = [...existingHistory, newItem];
+
+    await saveProgress(uid, {
+      ...snapshot,
+      completedSkills: snapshot.completedSkills || currentProgress?.completedSkills || [],
+      currentSkill: snapshot.currentSkill || currentProgress?.currentSkill || "",
+      completionPercentage: snapshot.completionPercentage,
+      history: updatedHistory
+    });
+
+    return true;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+    return false;
+  }
+}
+
+export async function getProgressHistory(uid: string): Promise<ProgressHistoryItem[]> {
+  try {
+    const currentProgress = await getProgress(uid);
+    if (currentProgress && Array.isArray(currentProgress.history)) {
+      return currentProgress.history;
+    }
+    return [];
+  } catch (err) {
+    console.warn(`Could not read progress history for user ${uid}:`, err);
+    return [];
+  }
+}
+
+export async function clearProgressHistory(uid: string): Promise<void> {
+  const path = `users/${uid}/progress/data`;
+  try {
+    const docRef = doc(db, "users", uid, "progress", "data");
+    await setDoc(docRef, { history: [] }, { merge: true });
+  } catch (err) {
+    console.warn(`Error clearing progress history for user ${uid}:`, err);
   }
 }
