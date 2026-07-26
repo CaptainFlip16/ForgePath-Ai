@@ -236,8 +236,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(true);
     try {
       const isMobile = typeof navigator !== "undefined" && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      
-      if (isMobile) {
+      const inIframe = typeof window !== "undefined" && window.self !== window.top;
+
+      if (isMobile && !inIframe) {
         await signInWithRedirect(auth, googleProvider);
         return;
       }
@@ -275,15 +276,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setProfile(newProfile);
         }
       } catch (popupErr: any) {
+        console.warn("[AuthContext] Google popup failed:", popupErr);
         if (
           popupErr.code === "auth/popup-blocked" ||
           popupErr.code === "auth/popup-closed-by-user" ||
           popupErr.code === "auth/cancelled-popup-request" ||
           popupErr.message?.includes("popup")
         ) {
-          console.warn("[AuthContext] Popup closed/blocked, falling back to redirect auth:", popupErr);
-          await signInWithRedirect(auth, googleProvider);
-          return;
+          throw new Error("Google Sign-In popup was blocked or closed. Please allow pop-ups for this site, or click the 'Open in a new tab' button at the top right of your browser/editor to open the site directly, and try again.");
         }
         throw popupErr;
       }

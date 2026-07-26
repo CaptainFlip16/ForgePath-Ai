@@ -460,141 +460,164 @@ export default function App() {
       }
       
       setDataLoading(true);
+      const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 4000));
+
       try {
-        await testFirestoreConnection();
-        
-        // 1. Fetch user's custom calibrated roadmap & progress from Cloud Firestore
-        const dbRoadmap = await getRoadmap(user.uid);
-        const dbProgress = await getProgress(user.uid);
-
-        if (dbProgress && Array.isArray(dbProgress.completedProjects)) {
-          setCompletedProjects(dbProgress.completedProjects);
-        } else {
-          setCompletedProjects([]);
-        }
-
-        let activeRoadmap: Roadmap | null = dbRoadmap;
-
-        if (activeRoadmap) {
-          // Merge dbProgress if available to guarantee completedSkills are synced
-          if (dbProgress && Array.isArray(dbProgress.completedSkills)) {
-            const mergedModules = activeRoadmap.modules.map((m) => {
-              const isMastered = dbProgress.completedSkills.some(
-                (titleOrId) => titleOrId.toLowerCase() === m.title.toLowerCase() || titleOrId === m.id
-              );
-              if (isMastered) {
-                return { ...m, status: "Mastered" as const };
-              }
-              return m;
-            });
-
-            // Ensure next locked module is marked In Progress if none is currently active
-            let foundNextInProg = false;
-            const syncedModules = mergedModules.map((m) => {
-              if (m.status === "Mastered") return m;
-              if (!foundNextInProg && (m.status === "In Progress" || m.status === "Locked")) {
-                foundNextInProg = true;
-                return { ...m, status: "In Progress" as const };
-              }
-              return m;
-            });
-
-            const completedCount = syncedModules.filter(m => m.status === "Mastered").length;
-            const overallProgress = Math.round((completedCount / syncedModules.length) * 100);
-
-            activeRoadmap = {
-              ...activeRoadmap,
-              overallProgress,
-              modules: syncedModules
-            };
-          }
-
-          setRoadmap(activeRoadmap);
-          localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(activeRoadmap));
-          const inProgressMod = activeRoadmap.modules.find((m: any) => m.status === "In Progress");
-          setSelectedModule(inProgressMod || activeRoadmap.modules[0]);
-        } else {
-          // Sync/Migrate from localStorage if exists
-          const savedRoadmap = localStorage.getItem(`forgepath_roadmap_${user.uid}`);
-          if (savedRoadmap) {
+        await Promise.race([
+          (async () => {
             try {
-              const parsed = JSON.parse(savedRoadmap);
-              setRoadmap(parsed);
-              const inProgressMod = parsed.modules.find((m: any) => m.status === "In Progress");
-              setSelectedModule(inProgressMod || parsed.modules[0]);
-              // Upload to Firestore so they have server persistence
-              await saveRoadmap(user.uid, parsed);
-              await saveProgress(user.uid, {
-                completedSkills: parsed.modules.filter((m: any) => m.status === "Mastered").map((m: any) => m.title),
-                currentSkill: inProgressMod?.title || "",
-                completionPercentage: parsed.overallProgress || 0
+              await testFirestoreConnection();
+            } catch (e) {}
+            
+            // 1. Fetch user's custom calibrated roadmap & progress from Cloud Firestore
+            const dbRoadmap = await getRoadmap(user.uid);
+            const dbProgress = await getProgress(user.uid);
+
+            if (dbProgress && Array.isArray(dbProgress.completedProjects)) {
+              setCompletedProjects(dbProgress.completedProjects);
+            } else {
+              setCompletedProjects([]);
+            }
+
+            let activeRoadmap: Roadmap | null = dbRoadmap;
+
+            if (activeRoadmap) {
+              // Merge dbProgress if available to guarantee completedSkills are synced
+              if (dbProgress && Array.isArray(dbProgress.completedSkills)) {
+                const mergedModules = activeRoadmap.modules.map((m) => {
+                  const isMastered = dbProgress.completedSkills.some(
+                    (titleOrId) => titleOrId.toLowerCase() === m.title.toLowerCase() || titleOrId === m.id
+                  );
+                  if (isMastered) {
+                    return { ...m, status: "Mastered" as const };
+                  }
+                  return m;
+                });
+
+                // Ensure next locked module is marked In Progress if none is currently active
+                let foundNextInProg = false;
+                const syncedModules = mergedModules.map((m) => {
+                  if (m.status === "Mastered") return m;
+                  if (!foundNextInProg && (m.status === "In Progress" || m.status === "Locked")) {
+                    foundNextInProg = true;
+                    return { ...m, status: "In Progress" as const };
+                  }
+                  return m;
+                });
+
+                const completedCount = syncedModules.filter(m => m.status === "Mastered").length;
+                const overallProgress = Math.round((completedCount / syncedModules.length) * 100);
+
+                activeRoadmap = {
+                  ...activeRoadmap,
+                  overallProgress,
+                  modules: syncedModules
+                };
+              }
+
+              setRoadmap(activeRoadmap);
+              localStorage.setItem(`forgepath_roadmap_${user.uid}`, JSON.stringify(activeRoadmap));
+              const inProgressMod = activeRoadmap.modules.find((m: any) => m.status === "In Progress");
+              setSelectedModule(inProgressMod || activeRoadmap.modules[0]);
+            } else {
+              // Sync/Migrate from localStorage if exists, or generate fallback
+              const savedRoadmap = localStorage.getItem(`forgepath_roadmap_${user.uid}`);
+              if (savedRoadmap) {
+                try {
+                  const parsed = JSON.parse(savedRoadmap);
+                  setRoadmap(parsed);
+                  const inProgressMod = parsed.modules.find((m: any) => m.status === "In Progress");
+                  setSelectedModule(inProgressMod || parsed.modules[0]);
+                  // Upload to Firestore so they have server persistence
+                  await saveRoadmap(user.uid, parsed);
+                  await saveProgress(user.uid, {
+                    completedSkills: parsed.modules.filter((m: any) => m.status === "Mastered").map((m: any) => m.title),
+                    currentSkill: inProgressMod?.title || "",
+                    completionPercentage: parsed.overallProgress || 0
+                  });
+                } catch (e) {
+                  console.error("Migration parse error", e);
+                }
+              } else {
+                const fallback = generateFallbackRoadmap(targetCareer || "Full-Stack AI Engineer", targetBuild || "Interactive Portfolio Application", selectedSkills.length > 0 ? selectedSkills : ["Programming Fundamentals", "React"]);
+                setRoadmap(fallback);
+                setSelectedModule(fallback.modules[0]);
+                try {
+                  await saveRoadmap(user.uid, fallback);
+                } catch (e) {}
+              }
+            }
+
+            // 2. Fetch onboarding choices to populate inputs
+            const dbOnboarding = await getOnboarding(user.uid);
+            if (dbOnboarding) {
+              setTargetCareer(dbOnboarding.learningGoal || "");
+              setSelectedSkills(dbOnboarding.selectedSkills || []);
+              setWeeklyHours(dbOnboarding.weeklyTime || "5-10 hours");
+              setMethodologies(dbOnboarding.learningStyle || []);
+              setTargetBuild(dbOnboarding.desiredOutcome || "");
+            }
+
+            // 3. Fetch progress history snapshots from Firestore
+            setHistoryLoading(true);
+            let dbHistory = await getProgressHistory(user.uid);
+
+            if (dbHistory.length === 0 && (activeRoadmap || dbProgress)) {
+              const currentMods = activeRoadmap?.modules || [];
+              const masteredMods = currentMods.filter((m: any) => m.status === "Mastered");
+              const totalMods = currentMods.length || 1;
+              const pct = activeRoadmap?.overallProgress ?? dbProgress?.completionPercentage ?? 0;
+              
+              await addProgressSnapshot(user.uid, {
+                completionPercentage: pct,
+                completedSkillsCount: dbProgress?.completedSkills?.length || masteredMods.length,
+                totalSkills: totalMods,
+                completedSkills: dbProgress?.completedSkills || masteredMods.map((m: any) => m.title),
+                currentSkill: dbProgress?.currentSkill || activeRoadmap?.modules.find((m: any) => m.status === "In Progress")?.title || ""
               });
-            } catch (e) {
-              console.error("Migration parse error", e);
+
+              dbHistory = await getProgressHistory(user.uid);
             }
-          }
-        }
 
-        // 2. Fetch onboarding choices to populate inputs
-        const dbOnboarding = await getOnboarding(user.uid);
-        if (dbOnboarding) {
-          setTargetCareer(dbOnboarding.learningGoal || "");
-          setSelectedSkills(dbOnboarding.selectedSkills || []);
-          setWeeklyHours(dbOnboarding.weeklyTime || "5-10 hours");
-          setMethodologies(dbOnboarding.learningStyle || []);
-          setTargetBuild(dbOnboarding.desiredOutcome || "");
-        }
+            setProgressHistory(dbHistory);
+            setHistoryLoading(false);
 
-        // 3. Fetch progress history snapshots from Firestore
-        setHistoryLoading(true);
-        let dbHistory = await getProgressHistory(user.uid);
+            // 3. Determine if user has completed onboarding
+            const userHasCompletedOnboarding = !!(profile?.hasCompletedOnboarding || activeRoadmap || dbOnboarding);
 
-        // If user has an active roadmap or progress state but no history snapshot yet,
-        // create initial baseline snapshot so chart renders real data immediately
-        if (dbHistory.length === 0 && (activeRoadmap || dbProgress)) {
-          const currentMods = activeRoadmap?.modules || [];
-          const masteredMods = currentMods.filter((m: any) => m.status === "Mastered");
-          const totalMods = currentMods.length || 1;
-          const pct = activeRoadmap?.overallProgress ?? dbProgress?.completionPercentage ?? 0;
-          
-          await addProgressSnapshot(user.uid, {
-            completionPercentage: pct,
-            completedSkillsCount: dbProgress?.completedSkills?.length || masteredMods.length,
-            totalSkills: totalMods,
-            completedSkills: dbProgress?.completedSkills || masteredMods.map((m: any) => m.title),
-            currentSkill: dbProgress?.currentSkill || activeRoadmap?.modules.find((m: any) => m.status === "In Progress")?.title || ""
-          });
-
-          dbHistory = await getProgressHistory(user.uid);
-        }
-
-        setProgressHistory(dbHistory);
-        setHistoryLoading(false);
-
-        // 3. Determine if user has completed onboarding
-        const userHasCompletedOnboarding = !!(profile?.hasCompletedOnboarding || activeRoadmap || dbOnboarding);
-
-        if (userHasCompletedOnboarding) {
-          if (!profile?.hasCompletedOnboarding) {
-            await updateOnboardingStatus(true);
-          }
-          setCurrentView((prev) => {
-            if (prev === "auth" || prev === "home" || prev.startsWith("onboarding_")) {
-              return "dashboard";
+            if (userHasCompletedOnboarding) {
+              if (!profile?.hasCompletedOnboarding) {
+                await updateOnboardingStatus(true);
+              }
+              setCurrentView((prev) => {
+                if (prev === "auth" || prev === "home" || prev.startsWith("onboarding_")) {
+                  return "dashboard";
+                }
+                return prev;
+              });
+            } else {
+              setCurrentView((prev) => {
+                if (prev === "auth") {
+                  return "onboarding_1";
+                }
+                return prev;
+              });
             }
-            return prev;
-          });
-        } else {
-          setCurrentView((prev) => {
-            if (prev === "auth") {
-              return "onboarding_1";
-            }
-            return prev;
-          });
-        }
+          })(),
+          timeoutPromise
+        ]);
       } catch (err) {
         console.error("Error synchronizing with Firestore database:", err);
       } finally {
+        // Guarantee roadmap is present
+        setRoadmap((currentRoadmap) => {
+          if (!currentRoadmap) {
+            const fallback = generateFallbackRoadmap(targetCareer || "Full-Stack AI Engineer", targetBuild || "Interactive Portfolio Application", selectedSkills.length > 0 ? selectedSkills : ["Programming Fundamentals", "React"]);
+            setSelectedModule(fallback.modules[0]);
+            return fallback;
+          }
+          return currentRoadmap;
+        });
         setDataLoading(false);
       }
     }
@@ -1401,12 +1424,12 @@ export default function App() {
         <div className="relative z-10 flex flex-col min-h-screen">
           {/* Main Top Header */}
           <header className="fixed top-0 w-full z-50 bg-[var(--bg-header)] backdrop-blur-md border-b border-[var(--border-color)] shadow-sm">
-            <div className="max-w-7xl mx-auto flex justify-between items-center px-6 h-16">
-              <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView("home")}>
-                <div className="w-9 h-9 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-indigo-400/30">
-                  <Compass className="text-white w-5 h-5 animate-spin-slow" />
+            <div className="max-w-7xl mx-auto flex justify-between items-center px-2 sm:px-6 h-16 gap-1.5 sm:gap-2">
+              <div className="flex items-center gap-2 sm:gap-3 cursor-pointer shrink-0" onClick={() => setCurrentView("home")}>
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/20 border border-indigo-400/30">
+                  <Compass className="text-white w-4 h-4 sm:w-5 sm:h-5 animate-spin-slow" />
                 </div>
-                <span className="font-sans font-bold text-lg tracking-tight text-[var(--text-main)]">ForgePath AI</span>
+                <span className="font-sans font-bold text-base sm:text-lg tracking-tight text-[var(--text-main)] whitespace-nowrap">ForgePath AI</span>
               </div>
               
               <div className="hidden md:flex items-center gap-8">
@@ -1420,11 +1443,11 @@ export default function App() {
                 <a className="text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] transition-colors" href="#ai-mentor">AI Mentor Hub</a>
               </div>
 
-              <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex items-center gap-1.5 sm:gap-4 shrink-0">
                 <ThemeToggle theme={theme} onToggle={toggleTheme} />
                 {user ? (
                   <>
-                    <span className="hidden sm:inline text-xs text-[var(--text-muted)] font-medium">
+                    <span className="hidden lg:inline text-xs text-[var(--text-muted)] font-medium">
                       Hey, <span className="text-[var(--text-main)] font-semibold">{profile?.fullName || user.email}</span>
                     </span>
                     <button 
@@ -1435,13 +1458,13 @@ export default function App() {
                           setCurrentView("onboarding_1");
                         }
                       }}
-                      className="bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/40 text-[var(--text-main)] text-xs uppercase tracking-wider font-semibold py-2 px-4 rounded-lg transition-all cursor-pointer"
+                      className="bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/40 text-[var(--text-main)] text-[11px] sm:text-xs uppercase tracking-wider font-semibold py-1.5 sm:py-2 px-2.5 sm:px-4 rounded-lg transition-all cursor-pointer whitespace-nowrap"
                     >
                       Dashboard
                     </button>
                     <button 
                       onClick={handleSignOut}
-                      className="text-[var(--text-muted)] hover:text-[var(--text-main)] text-xs font-semibold py-2 px-3 transition-colors cursor-pointer"
+                      className="text-[var(--text-muted)] hover:text-[var(--text-main)] text-[11px] sm:text-xs font-semibold py-1.5 sm:py-2 px-2 sm:px-3 transition-colors cursor-pointer whitespace-nowrap"
                     >
                       Sign Out
                     </button>
@@ -1450,13 +1473,13 @@ export default function App() {
                   <>
                     <button 
                       onClick={() => setCurrentView("auth")}
-                      className="text-[var(--text-muted)] hover:text-[var(--text-main)] text-xs font-semibold py-2 px-4 transition-colors cursor-pointer"
+                      className="text-[var(--text-muted)] hover:text-[var(--text-main)] text-[11px] sm:text-xs font-semibold py-1.5 sm:py-2 px-2 sm:px-4 transition-colors cursor-pointer whitespace-nowrap"
                     >
                       Sign In
                     </button>
                     <button 
                       onClick={handleBuildMyPathClick}
-                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs uppercase tracking-wider font-bold py-2.5 px-5 rounded-lg transition-all hover:scale-[1.02] cursor-pointer shadow-lg shadow-indigo-500/20 border border-indigo-400/30"
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] sm:text-xs uppercase tracking-wider font-bold py-1.5 sm:py-2.5 px-2.5 sm:px-5 rounded-lg transition-all hover:scale-[1.02] cursor-pointer shadow-lg shadow-indigo-500/20 border border-indigo-400/30 whitespace-nowrap"
                     >
                       Build My Path
                     </button>
@@ -1497,11 +1520,11 @@ export default function App() {
               </div>
 
               {/* Sophisticated visual map display */}
-              <div className="relative w-full h-[450px] lg:h-[550px] rounded-2xl overflow-hidden glass-panel border border-[var(--border-color)] shadow-2xl group ai-glow bg-[var(--bg-surface-subtle)]">
+              <div className="relative w-full h-[320px] sm:h-[400px] lg:h-[460px] rounded-2xl overflow-hidden glass-panel border border-[var(--border-color)] shadow-2xl group ai-glow bg-[var(--bg-surface-subtle)]">
                 <img 
                   src={simpleRoadMapImg} 
                   alt="Skill Roadmap Path" 
-                  className="w-full h-full object-cover rounded-2xl transition-transform duration-700 group-hover:scale-105"
+                  className="w-full h-full object-cover object-center rounded-2xl transition-transform duration-700 group-hover:scale-105"
                   referrerPolicy="no-referrer"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-app)]/60 via-transparent to-transparent pointer-events-none"></div>
@@ -1665,14 +1688,13 @@ export default function App() {
                       </div>
                     </div>
                     
-                    <div className="relative overflow-hidden aspect-[4/3] bg-black/40">
+                    <div className="relative overflow-hidden bg-[#0a0d14] flex items-center justify-center p-2 sm:p-4">
                       <img 
                         src={chatMentorMockupImg} 
                         alt="ForgePath AI Mentor Interactive Interface" 
-                        className="w-full h-full object-cover object-top transition-transform duration-700 group-hover:scale-102"
+                        className="w-full h-auto max-h-[520px] object-contain rounded-xl shadow-lg"
                         referrerPolicy="no-referrer"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-surface)] via-transparent to-transparent pointer-events-none"></div>
                     </div>
 
                     {/* Interactive Feature Pill Badges Bar */}
@@ -2303,10 +2325,20 @@ export default function App() {
 
       {/* VIEW: MAIN DASHBOARD & COMMAND CENTER */}
       {currentView === "dashboard" && !roadmap && (
-        <div className="min-h-screen flex items-center justify-center bg-[#05070a] text-white">
-          <div className="flex flex-col items-center gap-3">
+        <div className="min-h-screen flex items-center justify-center bg-[#05070a] text-white p-6">
+          <div className="flex flex-col items-center gap-3 text-center">
             <Compass className="w-8 h-8 text-indigo-400 animate-spin-slow" />
             <p className="text-sm font-mono text-slate-400">Loading learning environment...</p>
+            <button
+              onClick={() => {
+                const fallback = generateFallbackRoadmap(targetCareer || "Full-Stack AI Engineer", targetBuild || "Interactive Portfolio Application", selectedSkills.length > 0 ? selectedSkills : ["Programming Fundamentals", "React"]);
+                setRoadmap(fallback);
+                setSelectedModule(fallback.modules[0]);
+              }}
+              className="mt-4 px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-500 transition-colors cursor-pointer"
+            >
+              Launch Dashboard Now
+            </button>
           </div>
         </div>
       )}
