@@ -60,8 +60,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Process Google redirect result if coming back from redirect flow
+
+    const pendingRedirect = typeof window !== "undefined" && sessionStorage.getItem("fp_google_redirect_pending") === "1";
+
     getRedirectResult(auth)
       .then(async (result) => {
+        if (typeof window !== "undefined") sessionStorage.removeItem("fp_google_redirect_pending");
+
         if (result && result.user) {
           const firebaseUser = result.user;
           const userDocRef = doc(db, "users", firebaseUser.uid);
@@ -90,11 +95,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
             setProfile(newProfile);
           }
+        } else if (pendingRedirect) {
+          // We came back from Google's redirect but got no user back - this is the
+          // Chrome/Android storage-partitioning failure mode. Surface it instead of
+          // silently dropping the user back on the sign-in screen.
+          console.error("[AuthContext] Redirect completed but no credential was returned (likely blocked cross-site storage).");
+          setError(
+            "Google Sign-In didn't complete. This is usually caused by your browser blocking cross-site cookies/storage. Try enabling 'Allow all cookies' for this site in Chrome settings, or use Email & Password sign-in instead."
+          );
         }
       })
-      .catch((redirectErr) => {
-        console.warn("[AuthContext] Redirect result processing:", redirectErr);
+      .catch((redirectErr: any) => {
+        if (typeof window !== "undefined") sessionStorage.removeItem("fp_google_redirect_pending");
+        console.error("[AuthContext] Redirect result processing failed:", redirectErr);
+        setError(redirectErr?.message || "Google Sign-In failed to complete after redirect.");
       });
+
+
+    // getRedirectResult(auth)
+    //   .then(async (result) => {
+    //     if (result && result.user) {
+    //       const firebaseUser = result.user;
+    //       const userDocRef = doc(db, "users", firebaseUser.uid);
+    //       let docSnap;
+    //       try {
+    //         docSnap = await getDoc(userDocRef);
+    //       } catch (getErr) {
+    //         console.warn("[AuthContext] Firestore getDoc failed after redirect:", getErr);
+    //       }
+    //       if (docSnap && docSnap.exists()) {
+    //         const profileData = docSnap.data() as UserProfile;
+    //         setProfile({ ...profileData, lastLoginAt: new Date() });
+    //       } else {
+    //         const newProfile: UserProfile = {
+    //           uid: firebaseUser.uid,
+    //           fullName: firebaseUser.displayName || "Google Developer",
+    //           email: firebaseUser.email || "",
+    //           createdAt: new Date(),
+    //           lastLoginAt: new Date(),
+    //           hasCompletedOnboarding: false
+    //         };
+    //         try {
+    //           await setDoc(userDocRef, { ...newProfile, createdAt: serverTimestamp(), lastLoginAt: serverTimestamp() });
+    //         } catch (setErr) {
+    //           console.warn("[AuthContext] Failed to save Google profile after redirect:", setErr);
+    //         }
+    //         setProfile(newProfile);
+    //       }
+    //     }
+    //   })
+    //   .catch((redirectErr) => {
+    //     console.warn("[AuthContext] Redirect result processing:", redirectErr);
+    //   });
 
     // Subscribe to Firebase auth changes
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
@@ -229,69 +281,161 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
-    setError(null);
-    if (!auth || !googleProvider) {
-      throw new Error("Firebase Auth is not configured. Please enter your Firebase environment variables or use Email & Password Sign In.");
+  setError(null);
+  if (!auth || !googleProvider) {
+    throw new Error("Firebase Auth is not configured. Please enter your Firebase environment variables or use Email & Password Sign In.");
+  }
+
+  const inIframe = typeof window !== "undefined" && window.self !== window.top;
+  const isMobile =
+    typeof navigator !== "undefined" &&
+    (
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      // iPadOS 13+ Safari reports a desktop "Macintosh" UA - detect via touch points instead
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+    );
+
+  // Inside a cross-origin/sandboxed iframe on a MOBILE device, neither popup nor a
+  // top-level redirect can complete reliably: the popup gets silently opened-then-closed
+  // by mobile tracking-prevention before the account picker can render (the exact bug
+  // reported), and we cannot programmatically navigate window.top from inside a
+  // cross-origin sandbox. Fail fast with actionable guidance instead of flashing a popup.
+  if (isMobile && inIframe) {
+    throw new Error(
+      "Google Sign-In can't complete inside an embedded preview on mobile. Please tap 'Open in a new tab' below and sign in there."
+    );
+  }
+
+  setLoading(true);
+  try {
+    // Mobile, top-level page (not embedded) -> redirect flow works reliably
+
+    if (isMobile && !inIframe) {
+      if (typeof window !== "undefined") sessionStorage.setItem("fp_google_redirect_pending", "1");
+      await signInWithRedirect(auth, googleProvider);
+      return;
     }
-    setLoading(true);
+
+    // if (isMobile && !inIframe) {
+    //   await signInWithRedirect(auth, googleProvider);
+    //   return;
+    // }
+
+    // Desktop (iframe or not) -> popup flow, unchanged
     try {
-      const isMobile = typeof navigator !== "undefined" && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      const inIframe = typeof window !== "undefined" && window.self !== window.top;
+      const result = await signInWithPopup(auth, googleProvider);
+      const firebaseUser = result.user;
 
-      if (isMobile && !inIframe) {
-        await signInWithRedirect(auth, googleProvider);
-        return;
-      }
-
+      const userDocRef = doc(db, "users", firebaseUser.uid);
+      let docSnap;
       try {
-        const result = await signInWithPopup(auth, googleProvider);
-        const firebaseUser = result.user;
-        
-        const userDocRef = doc(db, "users", firebaseUser.uid);
-        let docSnap;
-        try {
-          docSnap = await getDoc(userDocRef);
-        } catch (getErr) {
-          console.warn("[AuthContext] Firestore getDoc failed during Google Sign-In:", getErr);
-        }
-
-        if (docSnap && docSnap.exists()) {
-          const profileData = docSnap.data() as UserProfile;
-          try {
-            await updateDoc(userDocRef, { lastLoginAt: serverTimestamp() });
-          } catch (e) {}
-          setProfile({ ...profileData, lastLoginAt: new Date() });
-        } else {
-          const newProfile: UserProfile = {
-            uid: firebaseUser.uid,
-            fullName: firebaseUser.displayName || "Google Developer",
-            email: firebaseUser.email || "",
-            createdAt: new Date(),
-            lastLoginAt: new Date(),
-            hasCompletedOnboarding: false
-          };
-          try {
-            await setDoc(userDocRef, { ...newProfile, createdAt: serverTimestamp(), lastLoginAt: serverTimestamp() });
-          } catch (e) {}
-          setProfile(newProfile);
-        }
-      } catch (popupErr: any) {
-        console.warn("[AuthContext] Google popup failed:", popupErr);
-        if (
-          popupErr.code === "auth/popup-blocked" ||
-          popupErr.code === "auth/popup-closed-by-user" ||
-          popupErr.code === "auth/cancelled-popup-request" ||
-          popupErr.message?.includes("popup")
-        ) {
-          throw new Error("Google Sign-In popup was blocked or closed. Please allow pop-ups for this site, or click the 'Open in a new tab' button at the top right of your browser/editor to open the site directly, and try again.");
-        }
-        throw popupErr;
+        docSnap = await getDoc(userDocRef);
+      } catch (getErr) {
+        console.warn("[AuthContext] Firestore getDoc failed during Google Sign-In:", getErr);
       }
-    } catch (err: any) {
-      setLoading(false);
-      throw err;
+
+      if (docSnap && docSnap.exists()) {
+        const profileData = docSnap.data() as UserProfile;
+        try {
+          await updateDoc(userDocRef, { lastLoginAt: serverTimestamp() });
+        } catch (e) {}
+        setProfile({ ...profileData, lastLoginAt: new Date() });
+      } else {
+        const newProfile: UserProfile = {
+          uid: firebaseUser.uid,
+          fullName: firebaseUser.displayName || "Google Developer",
+          email: firebaseUser.email || "",
+          createdAt: new Date(),
+          lastLoginAt: new Date(),
+          hasCompletedOnboarding: false
+        };
+        try {
+          await setDoc(userDocRef, { ...newProfile, createdAt: serverTimestamp(), lastLoginAt: serverTimestamp() });
+        } catch (e) {}
+        setProfile(newProfile);
+      }
+    } catch (popupErr: any) {
+      console.warn("[AuthContext] Google popup failed:", popupErr);
+      if (
+        popupErr.code === "auth/popup-blocked" ||
+        popupErr.code === "auth/popup-closed-by-user" ||
+        popupErr.code === "auth/cancelled-popup-request" ||
+        popupErr.message?.includes("popup")
+      ) {
+        throw new Error("Google Sign-In popup was blocked or closed. Please allow pop-ups for this site, or click the 'Open in a new tab' button at the top right of your browser/editor to open the site directly, and try again.");
+      }
+      throw popupErr;
     }
-  };
+  } catch (err: any) {
+    setLoading(false);
+    throw err;
+  }
+};
+
+  // const signInWithGoogle = async () => {
+  //   setError(null);
+  //   if (!auth || !googleProvider) {
+  //     throw new Error("Firebase Auth is not configured. Please enter your Firebase environment variables or use Email & Password Sign In.");
+  //   }
+  //   setLoading(true);
+  //   try {
+  //     const isMobile = typeof navigator !== "undefined" && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  //     const inIframe = typeof window !== "undefined" && window.self !== window.top;
+
+  //     if (isMobile && !inIframe) {
+  //       await signInWithRedirect(auth, googleProvider);
+  //       return;
+  //     }
+
+  //     try {
+  //       const result = await signInWithPopup(auth, googleProvider);
+  //       const firebaseUser = result.user;
+        
+  //       const userDocRef = doc(db, "users", firebaseUser.uid);
+  //       let docSnap;
+  //       try {
+  //         docSnap = await getDoc(userDocRef);
+  //       } catch (getErr) {
+  //         console.warn("[AuthContext] Firestore getDoc failed during Google Sign-In:", getErr);
+  //       }
+
+  //       if (docSnap && docSnap.exists()) {
+  //         const profileData = docSnap.data() as UserProfile;
+  //         try {
+  //           await updateDoc(userDocRef, { lastLoginAt: serverTimestamp() });
+  //         } catch (e) {}
+  //         setProfile({ ...profileData, lastLoginAt: new Date() });
+  //       } else {
+  //         const newProfile: UserProfile = {
+  //           uid: firebaseUser.uid,
+  //           fullName: firebaseUser.displayName || "Google Developer",
+  //           email: firebaseUser.email || "",
+  //           createdAt: new Date(),
+  //           lastLoginAt: new Date(),
+  //           hasCompletedOnboarding: false
+  //         };
+  //         try {
+  //           await setDoc(userDocRef, { ...newProfile, createdAt: serverTimestamp(), lastLoginAt: serverTimestamp() });
+  //         } catch (e) {}
+  //         setProfile(newProfile);
+  //       }
+  //     } catch (popupErr: any) {
+  //       console.warn("[AuthContext] Google popup failed:", popupErr);
+  //       if (
+  //         popupErr.code === "auth/popup-blocked" ||
+  //         popupErr.code === "auth/popup-closed-by-user" ||
+  //         popupErr.code === "auth/cancelled-popup-request" ||
+  //         popupErr.message?.includes("popup")
+  //       ) {
+  //         throw new Error("Google Sign-In popup was blocked or closed. Please allow pop-ups for this site, or click the 'Open in a new tab' button at the top right of your browser/editor to open the site directly, and try again.");
+  //       }
+  //       throw popupErr;
+  //     }
+  //   } catch (err: any) {
+  //     setLoading(false);
+  //     throw err;
+  //   }
+  // };
 
   const logOut = async () => {
     setError(null);

@@ -1,6 +1,9 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { 
-  getAuth, 
+  getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserPopupRedirectResolver,
   GoogleAuthProvider, 
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -45,8 +48,21 @@ let googleProvider: any;
 
 if (isConfigured) {
   try {
-    app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-    auth = getAuth(app);
+    const alreadyInitialized = getApps().length > 0;
+    app = alreadyInitialized ? getApp() : initializeApp(firebaseConfig);
+
+    if (alreadyInitialized) {
+      // An auth instance may already exist for this app (e.g. HMR in dev) - reuse it
+      auth = getAuth(app);
+    } else {
+      // Explicit persistence + resolver survives Chrome's third-party storage
+      // partitioning, which is what breaks the redirect flow on Android Chrome
+      auth = initializeAuth(app, {
+        persistence: indexedDBLocalPersistence,
+        popupRedirectResolver: browserPopupRedirectResolver
+      });
+    }
+
     db = getFirestore(app);
     googleProvider = new GoogleAuthProvider();
     googleProvider.setCustomParameters({
@@ -63,7 +79,6 @@ export {
   db, 
   googleProvider, 
   isConfigured as isFirebaseConfigured,
-  // Auth methods
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -71,7 +86,6 @@ export {
   signInWithRedirect,
   getRedirectResult,
   onAuthStateChanged,
-  // Firestore methods
   doc,
   setDoc,
   getDoc,
