@@ -17,11 +17,12 @@ The platform then transforms this information into an interactive, AI-powered le
 
 ---
 
-## 🔗 Live Application Link
+## 🔗 Project Links
 
-* 🚀 **Live Public URL**: [👉 Click here to access ForgePath AI](https://ais-pre-tiw3is6zfwxlv42kh2bilf-481589291129.asia-southeast1.run.app)
-* 🔗 **Development Workspace URL**: [Access Active Preview](https://ais-dev-tiw3is6zfwxlv42kh2bilf-481589291129.asia-southeast1.run.app)
-* 💻 **Public GitHub Repository**: [View the Source Code](YOUR_GITHUB_REPOSITORY_URL)
+* 🚀 **Live Production URL**: https://forgepath-ai.ai.studio/
+* 💻 **Public GitHub Repository**: https://github.com/CaptainFlip16/ForgePath-Ai
+
+---
 
 ---
 
