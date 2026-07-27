@@ -314,7 +314,7 @@ ForgePath AI combines AI, 3D visualization, automation, persistent storage, and 
 
 ## 👨‍💻 Built By
 
-**Ahmad Shafique**  
+**Muhammad Ahmad Shafique**  
 *Slot 1*  
 **Air University, Islamabad**  
 
