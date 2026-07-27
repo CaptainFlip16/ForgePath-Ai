@@ -1,4 +1,5 @@
 import React from "react";
+import { motion } from "motion/react";
 import { Compass, ShieldCheck, ArrowUpRight } from "lucide-react";
 
 interface FooterProps {
@@ -25,7 +26,13 @@ export function Footer({ onStartOnboarding, onOpenAuth, onNavigateSection, onOpe
   };
 
   return (
-    <footer className="relative z-10 w-full border-t border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-xl text-[var(--text-main)] transition-colors duration-700">
+    <motion.footer 
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-40px" }}
+      transition={{ duration: 0.6 }}
+      className="relative z-10 w-full border-t border-[var(--border-color)] bg-[var(--bg-header)] backdrop-blur-xl text-[var(--text-main)] transition-colors duration-700"
+    >
       <div className="max-w-7xl mx-auto px-6 py-16">
         
         {/* Main Footer Content Grid */}
@@ -34,9 +41,12 @@ export function Footer({ onStartOnboarding, onOpenAuth, onNavigateSection, onOpe
           {/* Brand & Mission (4 Columns on LG) */}
           <div className="lg:col-span-5 flex flex-col gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 border border-indigo-400/30">
+              <motion.div 
+                whileHover={{ rotate: 15, scale: 1.05 }}
+                className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 border border-indigo-400/30 cursor-pointer"
+              >
                 <Compass className="w-5 h-5" />
-              </div>
+              </motion.div>
               <span className="font-bold text-xl tracking-tight text-[var(--text-main)] flex items-center gap-2">
                 ForgePath AI
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20 font-bold">
@@ -64,40 +74,44 @@ export function Footer({ onStartOnboarding, onOpenAuth, onNavigateSection, onOpe
             </h4>
             <ul className="flex flex-col gap-2.5 text-xs font-medium text-[var(--text-muted)]">
               <li>
-                <button 
+                <motion.button 
+                  whileHover={{ x: 3, color: "var(--color-primary)" }}
                   onClick={() => scrollToSection("how-it-works")} 
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer text-left flex items-center gap-1 group"
                 >
                   How It Works
-                  <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
+                  <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-all group-hover:translate-x-0.5" />
+                </motion.button>
               </li>
               <li>
-                <button 
+                <motion.button 
+                  whileHover={{ x: 3, color: "var(--color-primary)" }}
                   onClick={() => scrollToSection("ai-mentor")} 
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer text-left flex items-center gap-1 group"
                 >
                   AI Mentor Hub
-                  <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
+                  <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-all group-hover:translate-x-0.5" />
+                </motion.button>
               </li>
               <li>
-                <button 
+                <motion.button 
+                  whileHover={{ x: 3, color: "var(--color-primary)" }}
                   onClick={() => scrollToSection("roadmap")} 
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer text-left flex items-center gap-1 group"
                 >
                   Interactive Roadmaps
-                  <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
+                  <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-all group-hover:translate-x-0.5" />
+                </motion.button>
               </li>
               <li>
-                <button 
+                <motion.button 
+                  whileHover={{ x: 3, color: "var(--color-primary)" }}
                   onClick={() => scrollToSection("n8n-automation")} 
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer text-left flex items-center gap-1 group"
                 >
                   n8n Automation Engine
-                  <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
+                  <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-all group-hover:translate-x-0.5" />
+                </motion.button>
               </li>
             </ul>
           </div>
@@ -109,36 +123,40 @@ export function Footer({ onStartOnboarding, onOpenAuth, onNavigateSection, onOpe
             </h4>
             <ul className="flex flex-col gap-2.5 text-xs font-medium text-[var(--text-muted)]">
               <li>
-                <button 
+                <motion.button 
+                  whileHover={{ x: 3 }}
                   onClick={onStartOnboarding} 
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer text-left font-semibold text-indigo-700 dark:text-indigo-300"
                 >
                   Build Custom Roadmap
-                </button>
+                </motion.button>
               </li>
               <li>
-                <button 
+                <motion.button 
+                  whileHover={{ x: 3 }}
                   onClick={onOpenAuth} 
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer text-left"
                 >
                   Sign In / Register
-                </button>
+                </motion.button>
               </li>
               <li>
-                <button 
+                <motion.button 
+                  whileHover={{ x: 3 }}
                   onClick={() => scrollToSection("ai-mentor")} 
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer text-left"
                 >
                   Voice &amp; TTS Assistant
-                </button>
+                </motion.button>
               </li>
               <li>
-                <button 
+                <motion.button 
+                  whileHover={{ x: 3 }}
                   onClick={() => scrollToSection("features")} 
                   className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer text-left"
                 >
                   Full Tech Stack Grid
-                </button>
+                </motion.button>
               </li>
             </ul>
           </div>
@@ -148,7 +166,10 @@ export function Footer({ onStartOnboarding, onOpenAuth, onNavigateSection, onOpe
             <h4 className="text-xs font-mono uppercase tracking-wider font-bold text-[var(--text-main)] mb-1">
               Architecture &amp; Cloud
             </h4>
-            <div className="glass-panel p-3.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col gap-2">
+            <motion.div 
+              whileHover={{ y: -2, scale: 1.01 }}
+              className="glass-panel p-3.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-surface)] flex flex-col gap-2 transition-all shadow-sm"
+            >
               <div className="flex items-center gap-2 text-xs font-bold text-[var(--text-main)]">
                 <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                 Secure Firebase Cloud
@@ -156,7 +177,7 @@ export function Footer({ onStartOnboarding, onOpenAuth, onNavigateSection, onOpe
               <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
                 Persisted user milestones, custom tech roadmaps, and auth sessions protected by Firestore rules.
               </p>
-            </div>
+            </motion.div>
           </div>
 
         </div>
@@ -170,6 +191,6 @@ export function Footer({ onStartOnboarding, onOpenAuth, onNavigateSection, onOpe
         </div>
 
       </div>
-    </footer>
+    </motion.footer>
   );
 }

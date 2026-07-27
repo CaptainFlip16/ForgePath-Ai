@@ -364,25 +364,6 @@ export function AuthPage({ onBackToHome, onAuthSuccess, theme = "dark", onToggle
               </svg>
               Sign in with Google
             </button>
-
-            {inIframe && (
-              <div className="p-3 bg-indigo-500/5 border border-indigo-500/20 rounded-xl text-[11px] text-[var(--text-muted)] leading-relaxed flex flex-col gap-2 mt-1">
-                <p>
-                  💡 <span className="font-semibold text-indigo-400">Inside App Preview Iframe:</span> Google Login popup can be blocked/closed instantly by browser privacy policies inside cross-origin frames.
-                </p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span>To fix this, open in a new tab:</span>
-                  <a
-                    href={window.location.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-400 hover:text-indigo-300 transition-all bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded border border-indigo-500/25 cursor-pointer"
-                  >
-                    Open in New Tab ↗
-                  </a>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Switch link */}

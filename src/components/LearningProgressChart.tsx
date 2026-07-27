@@ -218,7 +218,7 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
       </div>
 
       {/* Chart Canvas Area */}
-      <div className="relative w-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] rounded-2xl p-4 md:p-6 min-h-[270px] flex flex-col justify-between transition-colors duration-200">
+      <div className="relative w-full bg-[var(--bg-surface-subtle)] border border-[var(--border-color)] rounded-2xl p-4 md:p-6 min-h-[270px] flex flex-col justify-between transition-colors duration-200 overflow-hidden">
         
         {loading ? (
           <div className="flex-1 flex flex-col items-center justify-center py-12 gap-3 text-[var(--text-muted)]">
@@ -227,11 +227,11 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
           </div>
         ) : (
           /* MULTI-MILESTONE PROGRESS TRAJECTORY CHART */
-          <div className="relative w-full h-56 md:h-64 flex flex-col justify-between pt-2 pb-6">
+          <div className="relative w-full flex flex-col justify-between pt-2 pb-2 overflow-hidden">
             {/* SVG Chart Layer */}
-            <div className="relative flex-1 w-full">
+            <div className="relative flex-1 w-full h-48 md:h-56 overflow-hidden">
               <svg 
-                className="w-full h-full overflow-visible" 
+                className="w-full h-full" 
                 viewBox="0 0 500 160" 
                 preserveAspectRatio="none"
               >
@@ -244,20 +244,20 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
 
                 {/* Y-Axis horizontal gridlines (0%, 25%, 50%, 75%, 100%) */}
                 {[0, 25, 50, 75, 100].map((val) => {
-                  const y = 140 - (val / 100) * 120;
+                  const y = 138 - (val / 100) * 116;
                   return (
                     <g key={val}>
                       <line 
-                        x1="36" 
+                        x1="38" 
                         y1={y} 
-                        x2="480" 
+                        x2="475" 
                         y2={y} 
                         style={{ stroke: "var(--border-color)", opacity: 0.7 }}
                         strokeWidth="1" 
                         strokeDasharray="3 3" 
                       />
                       <text 
-                        x="28" 
+                        x="32" 
                         y={y + 3.5} 
                         style={{ fill: "var(--text-muted)" }}
                         fontSize="10" 
@@ -273,13 +273,13 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
 
                 {/* Calculate point coordinates */}
                 {(() => {
-                  const paddingX = 42;
-                  const widthAvailable = 430;
+                  const paddingX = 45;
+                  const widthAvailable = 420;
                   const denominator = chartPoints.length > 1 ? chartPoints.length - 1 : 1;
 
                   const points = chartPoints.map((item, idx) => {
                     const x = paddingX + (idx / denominator) * widthAvailable;
-                    const y = 140 - (Math.min(100, Math.max(0, item.completionPercentage)) / 100) * 120;
+                    const y = 138 - (Math.min(100, Math.max(0, item.completionPercentage)) / 100) * 116;
                     return { x, y, item, idx };
                   });
 
@@ -289,7 +289,7 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
                   }, "");
 
                   // Closed area path string for background gradient fill
-                  const areaD = `${pathD} L ${points[points.length - 1].x} 140 L ${points[0].x} 140 Z`;
+                  const areaD = `${pathD} L ${points[points.length - 1].x} 138 L ${points[0].x} 138 Z`;
 
                   return (
                     <g>
@@ -347,14 +347,26 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
               {hoveredIdx !== null && chartPoints[hoveredIdx] && (() => {
                 const total = chartPoints.length;
                 const denominator = total > 1 ? total - 1 : 1;
-                const xPct = ((42 + (hoveredIdx / denominator) * 430) / 500) * 100;
-                const yPct = ((140 - (chartPoints[hoveredIdx].completionPercentage / 100) * 120) / 160) * 100;
+                const completion = chartPoints[hoveredIdx].completionPercentage;
+                const rawXPct = ((45 + (hoveredIdx / denominator) * 420) / 500) * 100;
+                const rawYPct = ((138 - (Math.min(100, Math.max(0, completion)) / 100) * 116) / 160) * 100;
+
+                let alignTransformX = "-translate-x-1/2";
+                if (hoveredIdx === 0 || rawXPct < 25) {
+                  alignTransformX = "translate-x-0";
+                } else if (hoveredIdx === total - 1 || rawXPct > 75) {
+                  alignTransformX = "-translate-x-full";
+                }
+
+                const showBelow = rawYPct < 35;
+                const alignTransformY = showBelow ? "translate-y-4" : "-translate-y-full -translate-y-3";
+
                 return (
                   <div 
-                    className="absolute z-20 bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-xl p-3 shadow-2xl backdrop-blur-md pointer-events-none text-xs transform -translate-x-1/2 -translate-y-full mb-3 transition-all duration-150"
+                    className={`absolute z-20 bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-xl p-3 shadow-2xl backdrop-blur-md pointer-events-none text-xs transform transition-all duration-150 ${alignTransformX} ${alignTransformY}`}
                     style={{
-                      left: `${xPct}%`,
-                      top: `${yPct}%`
+                      left: `${Math.max(2, Math.min(98, rawXPct))}%`,
+                      top: `${rawYPct}%`
                     }}
                   >
                     <div className="flex items-center justify-between gap-3 border-b border-[var(--border-color)] pb-1.5 mb-1.5 font-mono">
@@ -378,8 +390,8 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
               })()}
             </div>
 
-            {/* X-Axis Date/Time Labels aligned perfectly under SVG coordinates */}
-            <div className="relative w-full h-8 mt-4 border-t border-[var(--border-color)]">
+            {/* X-Axis Date/Time Labels aligned under SVG coordinates */}
+            <div className="relative w-full h-8 mt-3 border-t border-[var(--border-color)] pt-1 overflow-hidden">
               {chartPoints.map((item, idx) => {
                 const total = chartPoints.length;
                 const shouldShow = total <= 6 || idx === 0 || idx === total - 1 || idx % Math.ceil(total / 5) === 0;
@@ -387,8 +399,15 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
                 if (!shouldShow) return null;
                 
                 const denominator = total > 1 ? total - 1 : 1;
-                const xPct = ((42 + (idx / denominator) * 430) / 500) * 100;
+                const xPct = ((45 + (idx / denominator) * 420) / 500) * 100;
                 
+                let alignClass = "-translate-x-1/2";
+                if (idx === 0) {
+                  alignClass = "translate-x-0";
+                } else if (idx === total - 1) {
+                  alignClass = "-translate-x-full";
+                }
+
                 return (
                   <span 
                     key={idx} 
@@ -396,7 +415,7 @@ export const LearningProgressChart: React.FC<LearningProgressChartProps> = ({
                       left: `${xPct}%`,
                       color: hoveredIdx === idx ? "var(--color-primary)" : "var(--text-muted)" 
                     }}
-                    className={`absolute top-2 transform -translate-x-1/2 whitespace-nowrap text-[11px] font-mono font-semibold cursor-pointer transition-colors duration-150 ${hoveredIdx === idx ? "font-bold scale-105" : "hover:text-[var(--text-main)]"}`}
+                    className={`absolute top-2 transform ${alignClass} whitespace-nowrap text-[11px] font-mono font-semibold cursor-pointer transition-colors duration-150 ${hoveredIdx === idx ? "font-bold scale-105" : "hover:text-[var(--text-main)]"}`}
                     onMouseEnter={() => setHoveredIdx(idx)}
                     onMouseLeave={() => setHoveredIdx(null)}
                   >
