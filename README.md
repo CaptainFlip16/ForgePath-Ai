@@ -220,6 +220,15 @@ Parse AI Output ──> Gmail Node ──┬──> [Success] ──> Update She
 
 ## 📸 Screenshots
 
+### ⚙️ AI Automation Workflows (n8n)
+ForgePath AI uses **n8n** to automate personalized roadmap generation, AI Mentor responses, and welcome email delivery. The workflows integrate with **Firebase Firestore**, **OpenRouter/Gemini**, **Gmail**, and **Google Sheets** to provide a seamless AI-powered learning experience.
+
+<p align="center">
+  <img width="1145" height="516" alt="n8n screenshot" src="https://github.com/user-attachments/assets/900ecc48-acd2-4276-8850-4bf67d521b6c" />
+</p>
+
+---
+
 ### 🏠 Landing Page
 The landing page introduces the ForgePath AI platform and its personalized learning experience.
 
