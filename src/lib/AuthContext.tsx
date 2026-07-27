@@ -273,6 +273,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.warn("[AuthContext] Firestore setDoc failed during sign up (possibly offline), continuing with local state:", firestoreErr);
       }
 
+      // Trigger welcome email automation in the background (non-blocking)
+      fetch("https://ahmad-at-tech.app.n8n.cloud/webhook/forgepath-welcome-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid: firebaseUser.uid,
+          fullName: fullName,
+          email: firebaseUser.email || email
+        })
+      })
+        .then((res) => {
+          if (!res.ok) {
+            console.warn(`[AuthContext] Welcome email webhook returned status ${res.status}`);
+          } else {
+            console.log("[AuthContext] Welcome email webhook triggered successfully");
+          }
+        })
+        .catch((webhookErr) => {
+          console.warn("[AuthContext] Welcome email webhook trigger failed:", webhookErr);
+        });
+
       setProfile(newProfile);
     } catch (err: any) {
       setLoading(false);
