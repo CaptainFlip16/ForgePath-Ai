@@ -198,7 +198,7 @@ app.post("/api/chat", async (req, res) => {
 
     // Forward request to n8n webhook
     try {
-      const webhookRes = await fetch("https://ahmadontech.app.n8n.cloud/webhook/forgepath/ai-mentor", {
+      const webhookRes = await fetch("https://ahmad-at-tech.app.n8n.cloud/webhook/forgepath/ai-mentor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

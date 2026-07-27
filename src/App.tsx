@@ -897,7 +897,7 @@ export default function App() {
     let normalizedRoadmap: Roadmap | null = null;
 
     try {
-      const webhookUrl = "https://ahmadontech.app.n8n.cloud/webhook/forgepath/generate-roadmap";
+      const webhookUrl = "https://ahmad-at-tech.app.n8n.cloud/webhook/forgepath/generate-roadmap";
       console.log("Posting onboarding payload to n8n production webhook:", webhookUrl, n8nPayload);
 
       const res = await fetch(webhookUrl, {
@@ -1178,7 +1178,7 @@ export default function App() {
     const loggedInUid = user?.uid || "guest_user";
 
     try {
-      const res = await fetch("https://ahmadontech.app.n8n.cloud/webhook/forgepath/ai-mentor", {
+      const res = await fetch("https://ahmad-at-tech.app.n8n.cloud/webhook/forgepath/ai-mentor", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
