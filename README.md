@@ -263,7 +263,7 @@ Make sure you have installed:
 
 1. **Clone the Repository**
    ```bash
-   git clone YOUR_GITHUB_REPOSITORY_URL
+   git clone https://github.com/CaptainFlip16/ForgePath-Ai
    ```
 
 2. **Navigate to the Project Directory**
